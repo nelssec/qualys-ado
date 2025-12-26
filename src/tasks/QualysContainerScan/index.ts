@@ -7,18 +7,37 @@ import {
   ContainerScanOptions,
   QScannerExitCode,
   VulnerabilitySummary,
+  AuthMethod,
 } from '../../common';
 
 async function run(): Promise<void> {
   try {
-    // Get service connection details
     const qualysConnection = tl.getInput('qualysConnection', true)!;
-    const clientId = tl.getEndpointAuthorizationParameter(qualysConnection, 'clientId', false);
-    const clientSecret = tl.getEndpointAuthorizationParameter(qualysConnection, 'clientSecret', false);
-    const pod = tl.getEndpointAuthorizationParameter(qualysConnection, 'pod', false);
+    const authScheme = tl.getEndpointAuthorizationScheme(qualysConnection, false);
 
-    if (!clientId || !clientSecret || !pod) {
-      throw new Error('Qualys service connection must have clientId, clientSecret, and pod configured');
+    let authMethod: AuthMethod;
+    let accessToken: string | undefined;
+    let username: string | undefined;
+    let password: string | undefined;
+    let pod: string | undefined;
+
+    if (authScheme === 'Token') {
+      authMethod = 'access-token';
+      accessToken = tl.getEndpointAuthorizationParameter(qualysConnection, 'accessToken', false);
+      pod = tl.getEndpointAuthorizationParameter(qualysConnection, 'pod', false);
+      if (!accessToken || !pod) {
+        throw new Error('Qualys service connection must have accessToken and pod configured');
+      }
+    } else if (authScheme === 'UsernamePassword') {
+      authMethod = 'credentials';
+      username = tl.getEndpointAuthorizationParameter(qualysConnection, 'username', false);
+      password = tl.getEndpointAuthorizationParameter(qualysConnection, 'password', false);
+      pod = tl.getEndpointAuthorizationParameter(qualysConnection, 'pod', false);
+      if (!username || !password || !pod) {
+        throw new Error('Qualys service connection must have username, password, and pod configured');
+      }
+    } else {
+      throw new Error(`Unsupported authentication scheme: ${authScheme}. Use Token or UsernamePassword.`);
     }
 
     // Get task inputs
@@ -30,7 +49,6 @@ async function run(): Promise<void> {
     const failOnSeverity = parseInt(tl.getInput('failOnSeverity', false) || '4', 10);
     const scanTypesInput = tl.getInput('scanTypes', false) || 'os,sca';
     const scanTimeout = parseInt(tl.getInput('scanTimeout', false) || '300', 10);
-    const qscannerVersion = tl.getInput('qscannerVersion', false) || 'v4.8.0';
     const continueOnError = tl.getBoolInput('continueOnError', false);
     const publishResults = tl.getBoolInput('publishResults', false);
 
@@ -43,12 +61,12 @@ async function run(): Promise<void> {
     console.log(`Scan Types: ${scanTypesInput}`);
     console.log('');
 
-    // Set up QScanner
     const config: QScannerConfig = {
-      clientId,
-      clientSecret,
-      pod,
-      version: qscannerVersion,
+      authMethod,
+      accessToken,
+      username,
+      password,
+      pod: pod!,
     };
 
     const runner = new QScannerRunner(config);

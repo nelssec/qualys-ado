@@ -28,24 +28,30 @@ Azure DevOps extension for integrating Qualys security scanning into your CI/CD 
 
 ## Setup
 
-### 1. Create Qualys API Credentials
+### 1. Get Qualys Credentials
 
+You can authenticate using either method:
+
+**Option A: Access Token (Recommended)**
 1. Log into the Qualys portal
-2. Navigate to **Administration → Users → API Credentials**
-3. Create a new API credential with Container Security permissions
-4. Note your **Client ID** and **Client Secret**
+2. Navigate to **Container Security → Configuration → Access Token**
+3. Copy the access token
+
+**Option B: Username/Password**
+1. Use your Qualys platform username and password
+2. The extension will automatically exchange these for an access token
 
 ### 2. Create a Service Connection
 
 1. In Azure DevOps, go to **Project Settings → Service connections**
 2. Click **New service connection**
 3. Select **Qualys API Connection**
-4. Enter:
-   - **Client ID** - Your Qualys API Client ID
-   - **Client Secret** - Your Qualys API Client Secret
-   - **Pod** - Select your Qualys platform region (US1, CA1, EU1, etc.)
-5. Give it a name (e.g., "QualysConnection")
-6. Click **Save**
+4. Choose authentication method:
+   - **Access Token**: Enter your token from Container Security
+   - **Username/Password**: Enter your Qualys credentials
+5. Select your **Pod** (region: US1, CA1, EU1, etc.)
+6. Give it a name (e.g., "QualysConnection")
+7. Click **Save**
 
 ## Tasks
 
@@ -290,7 +296,8 @@ qualys-ado/
 The task downloads QScanner automatically. Ensure the build agent has internet access to `www.qualys.com`.
 
 ### "Authentication failed"
-Verify your Client ID and Client Secret are correct. Check that the API credential has Container Security permissions.
+- For Access Token: Verify the token is valid and not expired (tokens expire after 4 hours)
+- For Username/Password: Verify your credentials are correct and your account has Container Security permissions
 
 ### "Policy evaluation returned AUDIT"
 AUDIT means no policies matched. Create policies in Qualys and tag them, then reference the tags in `policyTags`.

@@ -141,15 +141,6 @@
       "groupName": "advanced"
     },
     {
-      "name": "qscannerVersion",
-      "type": "string",
-      "label": "QScanner Version",
-      "required": false,
-      "defaultValue": "v4.8.0",
-      "helpMarkDown": "Version of QScanner CLI to use",
-      "groupName": "advanced"
-    },
-    {
       "name": "continueOnError",
       "type": "boolean",
       "label": "Continue on Error",

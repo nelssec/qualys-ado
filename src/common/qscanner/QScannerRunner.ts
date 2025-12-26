@@ -1,7 +1,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { execSync, spawn, ChildProcess } from 'child_process';
+import * as zlib from 'zlib';
+import * as crypto from 'crypto';
+import { spawn, ChildProcess } from 'child_process';
 import * as https from 'https';
 import * as http from 'http';
 import {
@@ -12,15 +14,17 @@ import {
   RepoScanOptions,
   SarifReport,
   VulnerabilitySummary,
+  POD_GATEWAY_URLS,
 } from '../api/types';
 
-const DEFAULT_QSCANNER_VERSION = 'v4.8.0';
-const DOWNLOAD_BASE_URL = 'https://www.qualys.com/qscanner/download';
+const QSCANNER_BINARY_URL = 'https://github.com/nelssec/qualys-lambda/raw/main/scanner-lambda/qscanner.gz';
+const QSCANNER_SHA256 = '1a31b854154ee4594bb94e28aa86460b14a75687085d097f949e91c5fd00413d';
 
 export class QScannerRunner {
   private config: QScannerConfig;
   private binaryPath: string | null = null;
   private workDir: string;
+  private accessToken: string | null = null;
 
   constructor(config: QScannerConfig) {
     this.config = config;
@@ -31,50 +35,142 @@ export class QScannerRunner {
   }
 
   async setup(): Promise<void> {
-    const version = this.config.version || DEFAULT_QSCANNER_VERSION;
     const platform = this.getPlatform();
     const arch = this.getArchitecture();
 
-    console.log(`Setting up QScanner ${version} for ${platform}-${arch}...`);
+    console.log(`Setting up QScanner for ${platform}-${arch}...`);
 
-    const binaryDir = path.join(this.workDir, `${platform}-${arch}`);
-    const binaryName = platform === 'windows' ? 'qscanner.exe' : 'qscanner';
-    this.binaryPath = path.join(binaryDir, binaryName);
+    if (platform !== 'linux' || arch !== 'amd64') {
+      throw new Error(`QScanner binary only supports linux-amd64. Current: ${platform}-${arch}`);
+    }
+
+    const binaryName = 'qscanner';
+    this.binaryPath = path.join(this.workDir, binaryName);
 
     if (fs.existsSync(this.binaryPath)) {
       console.log('QScanner binary already exists, skipping download.');
+      await this.authenticate();
       return;
     }
 
-    const scriptUrl = `${DOWNLOAD_BASE_URL}/${version}/download_qscanner.sh`;
-    const scriptPath = path.join(this.workDir, 'download_qscanner.sh');
+    const gzPath = path.join(this.workDir, 'qscanner.gz');
 
-    console.log(`Downloading QScanner download script from ${scriptUrl}...`);
-    await this.downloadFile(scriptUrl, scriptPath);
+    console.log('Downloading QScanner binary...');
+    await this.downloadFile(QSCANNER_BINARY_URL, gzPath);
 
-    fs.chmodSync(scriptPath, '755');
+    console.log('Verifying SHA256 checksum...');
+    const actualHash = await this.calculateSha256(gzPath);
+    if (actualHash !== QSCANNER_SHA256) {
+      fs.unlinkSync(gzPath);
+      throw new Error(`SHA256 checksum mismatch. Expected: ${QSCANNER_SHA256}, Got: ${actualHash}`);
+    }
+    console.log('Checksum verified.');
 
-    try {
-      const env = {
-        ...process.env,
-        QSCANNER_VERSION: version,
-      };
+    console.log('Extracting QScanner binary...');
+    await this.gunzipFile(gzPath, this.binaryPath);
 
-      execSync(`sh ${scriptPath}`, {
-        cwd: this.workDir,
-        env,
-        stdio: 'inherit',
+    fs.unlinkSync(gzPath);
+    fs.chmodSync(this.binaryPath, '755');
+
+    console.log(`QScanner binary ready at ${this.binaryPath}`);
+    await this.authenticate();
+  }
+
+  private gunzipFile(srcPath: string, destPath: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const src = fs.createReadStream(srcPath);
+      const dest = fs.createWriteStream(destPath);
+      const gunzip = zlib.createGunzip();
+
+      src.pipe(gunzip).pipe(dest);
+
+      dest.on('finish', () => {
+        dest.close();
+        resolve();
       });
 
-      if (!fs.existsSync(this.binaryPath)) {
-        throw new Error(`QScanner binary not found at ${this.binaryPath} after download`);
-      }
+      dest.on('error', reject);
+      src.on('error', reject);
+      gunzip.on('error', reject);
+    });
+  }
 
-      fs.chmodSync(this.binaryPath, '755');
-      console.log(`QScanner binary ready at ${this.binaryPath}`);
-    } catch (error) {
-      throw new Error(`Failed to download QScanner: ${error}`);
+  private calculateSha256(filePath: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const hash = crypto.createHash('sha256');
+      const stream = fs.createReadStream(filePath);
+
+      stream.on('data', (data) => hash.update(data));
+      stream.on('end', () => resolve(hash.digest('hex')));
+      stream.on('error', reject);
+    });
+  }
+
+  private async authenticate(): Promise<void> {
+    if (this.config.authMethod === 'access-token') {
+      if (!this.config.accessToken) {
+        throw new Error('Access token is required when using access-token authentication');
+      }
+      this.accessToken = this.config.accessToken;
+      console.log('Using provided access token for authentication');
+    } else if (this.config.authMethod === 'credentials') {
+      if (!this.config.username || !this.config.password) {
+        throw new Error('Username and password are required when using credentials authentication');
+      }
+      console.log('Authenticating with Qualys API to obtain access token...');
+      this.accessToken = await this.fetchAccessToken();
+      console.log('Successfully obtained access token');
+    } else {
+      throw new Error(`Unknown authentication method: ${this.config.authMethod}`);
     }
+  }
+
+  private async fetchAccessToken(): Promise<string> {
+    const gatewayUrl = POD_GATEWAY_URLS[this.config.pod.toUpperCase()];
+    if (!gatewayUrl) {
+      throw new Error(`Unknown pod: ${this.config.pod}. Valid pods: ${Object.keys(POD_GATEWAY_URLS).join(', ')}`);
+    }
+
+    const authUrl = `${gatewayUrl}/auth`;
+    const body = `username=${encodeURIComponent(this.config.username!)}&password=${encodeURIComponent(this.config.password!)}&token=true`;
+
+    return new Promise((resolve, reject) => {
+      const url = new URL(authUrl);
+      const options: https.RequestOptions = {
+        hostname: url.hostname,
+        port: url.port || 443,
+        path: url.pathname,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Content-Length': Buffer.byteLength(body),
+        },
+        rejectUnauthorized: !this.config.skipTlsVerify,
+      };
+
+      const req = https.request(options, (res) => {
+        let data = '';
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+        res.on('end', () => {
+          if (res.statusCode === 201 || res.statusCode === 200) {
+            resolve(data.trim());
+          } else if (res.statusCode === 401) {
+            reject(new Error('Authentication failed: Invalid username or password'));
+          } else {
+            reject(new Error(`Authentication failed with status ${res.statusCode}: ${data}`));
+          }
+        });
+      });
+
+      req.on('error', (err) => {
+        reject(new Error(`Authentication request failed: ${err.message}`));
+      });
+
+      req.write(body);
+      req.end();
+    });
   }
 
   async scanImage(options: ContainerScanOptions): Promise<QScannerResult> {
@@ -191,8 +287,6 @@ export class QScannerRunner {
     const args: string[] = [];
 
     args.push('--pod', this.config.pod);
-    args.push('--client-id', this.config.clientId);
-    args.push('--client-secret', this.config.clientSecret);
     args.push('--mode', options.mode);
 
     if (options.scanTypes && options.scanTypes.length > 0) {
@@ -239,6 +333,10 @@ export class QScannerRunner {
       throw new Error('QScanner binary path not set');
     }
 
+    if (!this.accessToken) {
+      throw new Error('Access token not available. Call setup() first.');
+    }
+
     const resultOutputDir = outputDir || path.join(this.workDir, 'output');
     if (!fs.existsSync(resultOutputDir)) {
       fs.mkdirSync(resultOutputDir, { recursive: true });
@@ -248,7 +346,13 @@ export class QScannerRunner {
       args.push('--output-dir', resultOutputDir);
     }
 
-    console.log(`Executing: ${this.binaryPath} ${args.join(' ')}`);
+    const maskedArgs = args.map((arg, i) => {
+      if (args[i - 1] === '--access-token') {
+        return '***';
+      }
+      return arg;
+    });
+    console.log(`Executing: ${this.binaryPath} ${maskedArgs.join(' ')}`);
 
     return new Promise((resolve, reject) => {
       let stdout = '';
@@ -257,8 +361,7 @@ export class QScannerRunner {
       const proc: ChildProcess = spawn(this.binaryPath!, args, {
         env: {
           ...process.env,
-          QUALYS_CLIENT_ID: this.config.clientId,
-          QUALYS_CLIENT_SECRET: this.config.clientSecret,
+          QUALYS_ACCESS_TOKEN: this.accessToken!,
         },
       });
 
