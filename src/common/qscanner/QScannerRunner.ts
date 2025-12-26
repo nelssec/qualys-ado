@@ -5,7 +5,6 @@ import * as zlib from 'zlib';
 import * as crypto from 'crypto';
 import { spawn, ChildProcess } from 'child_process';
 import * as https from 'https';
-import * as http from 'http';
 import {
   QScannerConfig,
   QScannerResult,
@@ -491,14 +490,26 @@ export class QScannerRunner {
 
   private downloadFile(url: string, destPath: string): Promise<void> {
     return new Promise((resolve, reject) => {
-      const file = fs.createWriteStream(destPath);
-      const protocol = url.startsWith('https') ? https : http;
+      // Security: Only allow HTTPS downloads
+      if (!url.startsWith('https://')) {
+        reject(new Error('Security error: Only HTTPS URLs are allowed for downloads'));
+        return;
+      }
 
-      protocol
+      const file = fs.createWriteStream(destPath);
+
+      https
         .get(url, (response) => {
           if (response.statusCode === 301 || response.statusCode === 302) {
             const redirectUrl = response.headers.location;
             if (redirectUrl) {
+              // Security: Validate redirect URL is also HTTPS
+              if (!redirectUrl.startsWith('https://')) {
+                file.close();
+                fs.unlinkSync(destPath);
+                reject(new Error('Security error: Redirect to non-HTTPS URL blocked'));
+                return;
+              }
               file.close();
               fs.unlinkSync(destPath);
               this.downloadFile(redirectUrl, destPath).then(resolve).catch(reject);
