@@ -1,0 +1,227 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Microsoft/azure-pipelines-task-lib/master/tasks.schema.json",
+  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "name": "QualysContainerScan",
+  "friendlyName": "Qualys Container Security Scan",
+  "description": "Scan Docker container images for vulnerabilities using Qualys QScanner CLI",
+  "helpMarkDown": "[Learn more](https://docs.qualys.com/en/cs/latest/)",
+  "category": "Utility",
+  "visibility": ["Build", "Release"],
+  "runsOn": ["Agent", "DeploymentGroup"],
+  "author": "Your Organization",
+  "version": {
+    "Major": 2,
+    "Minor": 0,
+    "Patch": 0
+  },
+  "demands": [],
+  "instanceNameFormat": "Qualys Container Scan: $(imageId)",
+  "groups": [
+    {
+      "name": "connection",
+      "displayName": "Qualys Connection",
+      "isExpanded": true
+    },
+    {
+      "name": "image",
+      "displayName": "Container Image",
+      "isExpanded": true
+    },
+    {
+      "name": "policy",
+      "displayName": "Policy & Thresholds",
+      "isExpanded": false
+    },
+    {
+      "name": "advanced",
+      "displayName": "Advanced Options",
+      "isExpanded": false
+    }
+  ],
+  "inputs": [
+    {
+      "name": "qualysConnection",
+      "type": "connectedService:QualysApiConnection",
+      "label": "Qualys Service Connection",
+      "required": true,
+      "helpMarkDown": "Select the Qualys API service connection",
+      "groupName": "connection"
+    },
+    {
+      "name": "imageId",
+      "type": "string",
+      "label": "Image ID or Name",
+      "required": true,
+      "helpMarkDown": "Docker image ID (SHA256) or fully qualified image name (e.g., myregistry/myimage:tag)",
+      "groupName": "image"
+    },
+    {
+      "name": "storageDriver",
+      "type": "pickList",
+      "label": "Storage Driver",
+      "required": false,
+      "defaultValue": "none",
+      "options": {
+        "none": "None (Remote/Save Image)",
+        "docker-overlay2": "Docker Overlay2",
+        "containerd-overlayfs": "Containerd OverlayFS",
+        "podman-overlay": "Podman Overlay"
+      },
+      "helpMarkDown": "Use local container runtime storage for faster scanning",
+      "groupName": "image"
+    },
+    {
+      "name": "platform",
+      "type": "string",
+      "label": "Platform",
+      "required": false,
+      "defaultValue": "",
+      "helpMarkDown": "Platform for multi-arch images (e.g., linux/amd64, linux/arm64)",
+      "groupName": "image"
+    },
+    {
+      "name": "usePolicyEvaluation",
+      "type": "boolean",
+      "label": "Use Qualys Policy Evaluation",
+      "required": false,
+      "defaultValue": "true",
+      "helpMarkDown": "Use centralized Qualys policy for pass/fail determination. If disabled, local thresholds are used.",
+      "groupName": "policy"
+    },
+    {
+      "name": "policyTags",
+      "type": "string",
+      "label": "Policy Tags",
+      "required": false,
+      "defaultValue": "",
+      "helpMarkDown": "Comma-separated policy tags to evaluate (e.g., production,ci-cd)",
+      "groupName": "policy",
+      "visibleRule": "usePolicyEvaluation = true"
+    },
+    {
+      "name": "failOnSeverity",
+      "type": "pickList",
+      "label": "Fail on Severity",
+      "required": false,
+      "defaultValue": "4",
+      "options": {
+        "5": "Critical (5)",
+        "4": "High (4) and above",
+        "3": "Medium (3) and above",
+        "2": "Low (2) and above",
+        "1": "Informational (1) and above",
+        "0": "Do not fail on severity"
+      },
+      "helpMarkDown": "Fail the build if vulnerabilities at or above this severity are found (local threshold, used when policy evaluation is disabled)",
+      "groupName": "policy",
+      "visibleRule": "usePolicyEvaluation = false"
+    },
+    {
+      "name": "scanTypes",
+      "type": "pickList",
+      "label": "Scan Types",
+      "required": false,
+      "defaultValue": "os,sca",
+      "options": {
+        "os": "OS Packages Only",
+        "sca": "SCA/Language Packages Only",
+        "os,sca": "OS + SCA (Recommended)",
+        "os,sca,secret": "OS + SCA + Secrets"
+      },
+      "helpMarkDown": "Types of scans to perform",
+      "groupName": "advanced"
+    },
+    {
+      "name": "scanTimeout",
+      "type": "string",
+      "label": "Scan Timeout (seconds)",
+      "required": false,
+      "defaultValue": "300",
+      "helpMarkDown": "Maximum time for scan execution",
+      "groupName": "advanced"
+    },
+    {
+      "name": "qscannerVersion",
+      "type": "string",
+      "label": "QScanner Version",
+      "required": false,
+      "defaultValue": "v4.8.0",
+      "helpMarkDown": "Version of QScanner CLI to use",
+      "groupName": "advanced"
+    },
+    {
+      "name": "continueOnError",
+      "type": "boolean",
+      "label": "Continue on Error",
+      "required": false,
+      "defaultValue": "false",
+      "helpMarkDown": "Continue pipeline even if scan fails thresholds or encounters errors",
+      "groupName": "advanced"
+    },
+    {
+      "name": "publishResults",
+      "type": "boolean",
+      "label": "Publish SARIF Results",
+      "required": false,
+      "defaultValue": "true",
+      "helpMarkDown": "Publish SARIF results to Azure DevOps for code scanning alerts",
+      "groupName": "advanced"
+    }
+  ],
+  "outputVariables": [
+    {
+      "name": "vulnerabilityCount",
+      "description": "Total number of vulnerabilities found"
+    },
+    {
+      "name": "criticalCount",
+      "description": "Number of critical vulnerabilities"
+    },
+    {
+      "name": "highCount",
+      "description": "Number of high severity vulnerabilities"
+    },
+    {
+      "name": "mediumCount",
+      "description": "Number of medium severity vulnerabilities"
+    },
+    {
+      "name": "lowCount",
+      "description": "Number of low severity vulnerabilities"
+    },
+    {
+      "name": "policyResult",
+      "description": "Policy evaluation result (ALLOW, DENY, AUDIT, NONE)"
+    },
+    {
+      "name": "scanPassed",
+      "description": "Whether the scan passed (true/false)"
+    },
+    {
+      "name": "reportPath",
+      "description": "Path to the SARIF report file"
+    }
+  ],
+  "execution": {
+    "Node20_1": {
+      "target": "dist/tasks/QualysContainerScan/index.js"
+    }
+  },
+  "restrictions": {
+    "commands": {
+      "mode": "restricted"
+    },
+    "settableVariables": {
+      "allowed": [
+        "vulnerabilityCount",
+        "criticalCount",
+        "highCount",
+        "mediumCount",
+        "lowCount",
+        "policyResult",
+        "scanPassed",
+        "reportPath"
+      ]
+    }
+  }
+}

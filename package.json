@@ -1,0 +1,43 @@
+{
+  "name": "qualys-ado-extension",
+  "version": "1.0.0",
+  "description": "Qualys Security Scanner for Azure DevOps - Container Security and SCA scanning",
+  "author": "Your Organization",
+  "license": "MIT",
+  "scripts": {
+    "clean": "rimraf dist",
+    "compile": "npm run compile:common && npm run compile:tasks",
+    "compile:common": "tsc -p src/common/tsconfig.json",
+    "compile:tasks": "npm run compile:cs && npm run compile:sca",
+    "compile:cs": "tsc -p src/tasks/QualysContainerScan/tsconfig.json",
+    "compile:sca": "tsc -p src/tasks/QualysSCAScan/tsconfig.json",
+    "install:tasks": "npm run install:cs && npm run install:sca",
+    "install:cs": "cd src/tasks/QualysContainerScan && npm install --production",
+    "install:sca": "cd src/tasks/QualysSCAScan && npm install --production",
+    "test": "mocha 'src/**/tests/_suite.js'",
+    "lint": "eslint 'src/**/*.ts'",
+    "lint:fix": "eslint 'src/**/*.ts' --fix",
+    "format": "prettier --write 'src/**/*.ts'",
+    "format:check": "prettier --check 'src/**/*.ts'",
+    "package": "npm run clean && npm run compile && npm run install:tasks && tfx extension create --manifest-globs vss-extension.json",
+    "package:dev": "npm run package -- --override '{\"public\": false}'",
+    "publish:dev": "tfx extension publish --manifest-globs vss-extension.json --share-with your-org",
+    "publish:prod": "tfx extension publish --manifest-globs vss-extension.json"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.6",
+    "@types/node": "^20.10.0",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "eslint": "^8.56.0",
+    "eslint-config-prettier": "^9.1.0",
+    "mocha": "^10.2.0",
+    "prettier": "^3.1.1",
+    "rimraf": "^5.0.5",
+    "tfx-cli": "^0.16.0",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
