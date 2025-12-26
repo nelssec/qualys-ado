@@ -105,8 +105,8 @@
       "type": "boolean",
       "label": "Use Qualys Policy Evaluation",
       "required": false,
-      "defaultValue": "true",
-      "helpMarkDown": "Use centralized Qualys policy for pass/fail determination. If disabled, local thresholds are used.",
+      "defaultValue": "false",
+      "helpMarkDown": "Use centralized Qualys policy for pass/fail determination. Requires policy configuration in Qualys. If disabled, local thresholds are used.",
       "groupName": "policy"
     },
     {

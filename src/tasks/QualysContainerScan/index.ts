@@ -13,31 +13,27 @@ import {
 async function run(): Promise<void> {
   try {
     const qualysConnection = tl.getInput('qualysConnection', true)!;
-    const authScheme = tl.getEndpointAuthorizationScheme(qualysConnection, false);
 
     let authMethod: AuthMethod;
     let accessToken: string | undefined;
     let username: string | undefined;
     let password: string | undefined;
-    let pod: string | undefined;
 
-    if (authScheme === 'Token') {
+    accessToken = tl.getEndpointAuthorizationParameter(qualysConnection, 'accessToken', true);
+    username = tl.getEndpointAuthorizationParameter(qualysConnection, 'username', true);
+    password = tl.getEndpointAuthorizationParameter(qualysConnection, 'password', true);
+    const pod = tl.getEndpointAuthorizationParameter(qualysConnection, 'pod', false);
+
+    if (!pod) {
+      throw new Error('Qualys service connection must have pod configured');
+    }
+
+    if (accessToken) {
       authMethod = 'access-token';
-      accessToken = tl.getEndpointAuthorizationParameter(qualysConnection, 'accessToken', false);
-      pod = tl.getEndpointAuthorizationParameter(qualysConnection, 'pod', false);
-      if (!accessToken || !pod) {
-        throw new Error('Qualys service connection must have accessToken and pod configured');
-      }
-    } else if (authScheme === 'UsernamePassword') {
+    } else if (username && password) {
       authMethod = 'credentials';
-      username = tl.getEndpointAuthorizationParameter(qualysConnection, 'username', false);
-      password = tl.getEndpointAuthorizationParameter(qualysConnection, 'password', false);
-      pod = tl.getEndpointAuthorizationParameter(qualysConnection, 'pod', false);
-      if (!username || !password || !pod) {
-        throw new Error('Qualys service connection must have username, password, and pod configured');
-      }
     } else {
-      throw new Error(`Unsupported authentication scheme: ${authScheme}. Use Token or UsernamePassword.`);
+      throw new Error('Qualys service connection must have either accessToken or username/password configured');
     }
 
     // Get task inputs

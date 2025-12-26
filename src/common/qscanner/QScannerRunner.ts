@@ -249,10 +249,48 @@ export class QScannerRunner {
 
     if (report.runs && report.runs.length > 0) {
       for (const run of report.runs) {
+        // Build a map of rule severities from the rules array
+        const ruleSeverityMap = new Map<string, number>();
+        if (run.tool?.driver?.rules) {
+          for (const rule of run.tool.driver.rules) {
+            // QScanner stores severity in rule properties
+            const ruleSeverity = rule.properties?.severity as number | undefined;
+            if (rule.id && ruleSeverity !== undefined) {
+              ruleSeverityMap.set(rule.id, ruleSeverity);
+            }
+          }
+        }
+
         if (run.results) {
           for (const result of run.results) {
             summary.total++;
-            const severity = result.properties?.severity as number | undefined;
+
+            // Try multiple locations for severity:
+            // 1. result.properties.severity (direct on result)
+            // 2. Look up from rule by ruleId
+            // 3. Map from result.level (SARIF standard)
+            let severity: number | undefined = result.properties?.severity as number | undefined;
+
+            if (severity === undefined && result.ruleId) {
+              severity = ruleSeverityMap.get(result.ruleId);
+            }
+
+            if (severity === undefined && result.level) {
+              // Map SARIF level to Qualys severity
+              switch (result.level) {
+                case 'error':
+                  severity = 5; // Critical
+                  break;
+                case 'warning':
+                  severity = 3; // Medium
+                  break;
+                case 'note':
+                  severity = 2; // Low
+                  break;
+                default:
+                  severity = 1; // Informational
+              }
+            }
 
             if (severity === 5) {
               summary.critical++;
