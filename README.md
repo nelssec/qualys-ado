@@ -1,54 +1,46 @@
-# Qualys Azure DevOps Extension
+# Qualys Security Scanner for Azure DevOps
 
-Azure DevOps extension for integrating Qualys security scanning into your CI/CD pipelines using the QScanner CLI.
+Integrate Qualys vulnerability scanning into your Azure Pipelines using the QScanner CLI.
 
 ## Features
 
-- **Container Security Scanning** - Scan Docker images for OS and application vulnerabilities
-- **Software Composition Analysis (SCA)** - Scan code dependencies for known vulnerabilities
-- **Policy-Based Gating** - Use centralized Qualys policies to control build pass/fail
-- **SBOM Generation** - Generate Software Bill of Materials in SPDX or CycloneDX format
-- **SARIF Reports** - Publish results to Azure DevOps code scanning
+- **Container Security Scanning**: Scan Docker images for OS and application vulnerabilities
+- **Software Composition Analysis (SCA)**: Scan code dependencies for known vulnerabilities
+- **Secrets Detection**: Find exposed credentials, API keys, and tokens in your code
+- **Policy-Based Gating**: Use centralized Qualys policies to control build pass/fail
+- **SBOM Generation**: Generate Software Bill of Materials in SPDX or CycloneDX format
+- **SARIF Reports**: Publish results to Azure DevOps code scanning
 
 ## Installation
 
 ### From Visual Studio Marketplace
 
 1. Go to your Azure DevOps organization
-2. Navigate to **Organization Settings → Extensions**
+2. Navigate to **Organization Settings > Extensions**
 3. Click **Browse Marketplace**
 4. Search for "Qualys Security Scanner"
 5. Click **Get it free** and install to your organization
 
-### From VSIX File (Private)
+### From VSIX File
 
-1. Go to **Organization Settings → Extensions**
+1. Go to **Organization Settings > Extensions**
 2. Click **Upload extension**
 3. Upload the `.vsix` file
 
 ## Setup
 
-### 1. Get Qualys Credentials
+### 1. Get Qualys Access Token
 
-You can authenticate using either method:
-
-**Option A: Access Token (Recommended)**
 1. Log into the Qualys portal
-2. Navigate to **Container Security → Configuration → Access Token**
+2. Navigate to **Container Security > Configuration > Access Token**
 3. Copy the access token
-
-**Option B: Username/Password**
-1. Use your Qualys platform username and password
-2. The extension will automatically exchange these for an access token
 
 ### 2. Create a Service Connection
 
-1. In Azure DevOps, go to **Project Settings → Service connections**
+1. In Azure DevOps, go to **Project Settings > Service connections**
 2. Click **New service connection**
 3. Select **Qualys API Connection**
-4. Choose authentication method:
-   - **Access Token**: Enter your token from Container Security
-   - **Username/Password**: Enter your Qualys credentials
+4. Enter your **Access Token** from Container Security
 5. Select your **Pod** (region: US1, CA1, EU1, etc.)
 6. Give it a name (e.g., "QualysConnection")
 7. Click **Save**
@@ -57,7 +49,7 @@ You can authenticate using either method:
 
 ### QualysContainerScan@2
 
-Scans Docker container images for vulnerabilities using Qualys QScanner.
+Scans Docker container images for vulnerabilities.
 
 ```yaml
 - task: QualysContainerScan@2
@@ -74,7 +66,7 @@ Scans Docker container images for vulnerabilities using Qualys QScanner.
     failOnSeverity: '4'                # 5=Critical, 4=High, 3=Medium, 2=Low
 
     # Scan Options
-    scanTypes: 'os,sca'                # os, sca, secret
+    scanSecrets: false                 # Enable secrets detection
     storageDriver: 'none'              # none, docker-overlay2, containerd-overlayfs
     platform: 'linux/amd64'            # For multi-arch images
 
@@ -91,6 +83,8 @@ Scans Docker container images for vulnerabilities using Qualys QScanner.
 | `vulnerabilityCount` | Total vulnerabilities found |
 | `criticalCount` | Critical severity count |
 | `highCount` | High severity count |
+| `mediumCount` | Medium severity count |
+| `lowCount` | Low severity count |
 | `policyResult` | ALLOW, DENY, or AUDIT |
 | `scanPassed` | true/false |
 | `reportPath` | Path to SARIF report |
@@ -111,7 +105,7 @@ Scans code dependencies for vulnerabilities.
     policyTags: 'sca-policy'
 
     # Scan Options
-    scanTypes: 'sca'                   # sca, sca+secret, os+sca
+    scanSecrets: false                 # Enable secrets detection
     excludeDirs: 'node_modules,vendor' # Directories to skip
     offlineScan: false                 # Scan without uploading to Qualys
 
@@ -179,6 +173,7 @@ stages:
               imageId: 'myapp:$(Build.BuildId)'
               usePolicyEvaluation: true
               policyTags: 'production'
+              scanSecrets: true
               publishResults: true
 
           - task: QualysSCAScan@2
@@ -187,6 +182,7 @@ stages:
               qualysConnection: 'QualysConnection'
               scanPath: '$(Build.SourcesDirectory)'
               usePolicyEvaluation: true
+              scanSecrets: true
               generateSbom: true
               sbomFormat: 'spdx,cyclonedx'
 
@@ -216,13 +212,13 @@ stages:
 
 ## Qualys Policy Setup
 
-For best results, configure policies in the Qualys portal:
+Configure policies in the Qualys portal for automated pass/fail decisions:
 
-1. Log into Qualys → **Container Security → Policies**
+1. Log into Qualys and navigate to **Container Security > Policies**
 2. Create a policy with:
-   - **Severity thresholds** (e.g., fail on Critical/High)
-   - **Specific CVE blocks** (e.g., block Log4Shell)
-   - **Age-based rules** (e.g., fail if vuln > 30 days old)
+   - **Severity thresholds**: Fail on Critical or High vulnerabilities
+   - **Specific CVE blocks**: Block known dangerous CVEs like Log4Shell
+   - **Age-based rules**: Fail if vulnerabilities remain unfixed beyond a threshold
 3. Tag the policy (e.g., `production`, `ci-cd`)
 4. Reference the tag in your pipeline: `policyTags: 'production'`
 
@@ -259,8 +255,7 @@ For best results, configure policies in the Qualys portal:
 ```bash
 # Install dependencies
 npm install
-cd src/tasks/QualysContainerScan && npm install && cd ../../..
-cd src/tasks/QualysSCAScan && npm install && cd ../../..
+npm run install:tasks
 
 # Compile TypeScript
 npm run compile
@@ -269,7 +264,7 @@ npm run compile
 npm test
 
 # Package extension
-npx tfx-cli extension create --manifest-globs vss-extension.json
+npm run package
 ```
 
 ### Project Structure
@@ -285,6 +280,7 @@ qualys-ado/
 │   └── tasks/
 │       ├── QualysContainerScan/   # Container scan task
 │       └── QualysSCAScan/         # SCA scan task
+├── docs/                          # Documentation
 ├── vss-extension.json             # Extension manifest
 ├── overview.md                    # Marketplace description
 └── package.json
@@ -292,17 +288,20 @@ qualys-ado/
 
 ## Troubleshooting
 
-### "QScanner binary not found"
+### QScanner binary not found
+
 The task downloads QScanner automatically. Ensure the build agent has internet access to `www.qualys.com`.
 
-### "Authentication failed"
-- For Access Token: Verify the token is valid and not expired (tokens expire after 4 hours)
-- For Username/Password: Verify your credentials are correct and your account has Container Security permissions
+### Authentication failed
 
-### "Policy evaluation returned AUDIT"
+Verify your access token is valid and not expired. Tokens can be regenerated in Container Security > Configuration > Access Token.
+
+### Policy evaluation returned AUDIT
+
 AUDIT means no policies matched. Create policies in Qualys and tag them, then reference the tags in `policyTags`.
 
 ### Scan takes too long
+
 - Use `storageDriver: 'docker-overlay2'` if Docker is available (faster than pulling image)
 - Increase `scanTimeout` if needed
 - Consider `offlineScan: true` for SCA to skip upload
@@ -314,4 +313,4 @@ MIT
 ## Support
 
 - [Qualys Documentation](https://docs.qualys.com/en/cs/latest/)
-- [Report Issues](https://github.com/your-org/qualys-ado/issues)
+- [Report Issues](https://github.com/nelssec/qualys-ado/issues)

@@ -13,7 +13,6 @@ import {
   RepoScanOptions,
   SarifReport,
   VulnerabilitySummary,
-  POD_GATEWAY_URLS,
 } from '../api/types';
 
 const QSCANNER_BINARY_URL = 'https://github.com/nelssec/qualys-lambda/raw/main/scanner-lambda/qscanner.gz';
@@ -106,70 +105,11 @@ export class QScannerRunner {
   }
 
   private async authenticate(): Promise<void> {
-    if (this.config.authMethod === 'access-token') {
-      if (!this.config.accessToken) {
-        throw new Error('Access token is required when using access-token authentication');
-      }
-      this.accessToken = this.config.accessToken;
-      console.log('Using provided access token for authentication');
-    } else if (this.config.authMethod === 'credentials') {
-      if (!this.config.username || !this.config.password) {
-        throw new Error('Username and password are required when using credentials authentication');
-      }
-      console.log('Authenticating with Qualys API to obtain access token...');
-      this.accessToken = await this.fetchAccessToken();
-      console.log('Successfully obtained access token');
-    } else {
-      throw new Error(`Unknown authentication method: ${this.config.authMethod}`);
+    if (!this.config.accessToken) {
+      throw new Error('Access token is required');
     }
-  }
-
-  private async fetchAccessToken(): Promise<string> {
-    const gatewayUrl = POD_GATEWAY_URLS[this.config.pod.toUpperCase()];
-    if (!gatewayUrl) {
-      throw new Error(`Unknown pod: ${this.config.pod}. Valid pods: ${Object.keys(POD_GATEWAY_URLS).join(', ')}`);
-    }
-
-    const authUrl = `${gatewayUrl}/auth`;
-    const body = `username=${encodeURIComponent(this.config.username!)}&password=${encodeURIComponent(this.config.password!)}&token=true`;
-
-    return new Promise((resolve, reject) => {
-      const url = new URL(authUrl);
-      const options: https.RequestOptions = {
-        hostname: url.hostname,
-        port: url.port || 443,
-        path: url.pathname,
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'Content-Length': Buffer.byteLength(body),
-        },
-        rejectUnauthorized: !this.config.skipTlsVerify,
-      };
-
-      const req = https.request(options, (res) => {
-        let data = '';
-        res.on('data', (chunk) => {
-          data += chunk;
-        });
-        res.on('end', () => {
-          if (res.statusCode === 201 || res.statusCode === 200) {
-            resolve(data.trim());
-          } else if (res.statusCode === 401) {
-            reject(new Error('Authentication failed: Invalid username or password'));
-          } else {
-            reject(new Error(`Authentication failed with status ${res.statusCode}: ${data}`));
-          }
-        });
-      });
-
-      req.on('error', (err) => {
-        reject(new Error(`Authentication request failed: ${err.message}`));
-      });
-
-      req.write(body);
-      req.end();
-    });
+    this.accessToken = this.config.accessToken;
+    console.log('Using provided access token for authentication');
   }
 
   async scanImage(options: ContainerScanOptions): Promise<QScannerResult> {
@@ -318,7 +258,22 @@ export class QScannerRunner {
     return this.workDir;
   }
 
-  cleanup(): void {}
+  cleanup(): void {
+    // Clean up temporary files if they exist
+    if (this.workDir && fs.existsSync(this.workDir)) {
+      try {
+        const files = fs.readdirSync(this.workDir);
+        for (const file of files) {
+          // Only clean up output files, not the binary (it may be reused)
+          if (file.endsWith('.json') || file.endsWith('.sarif')) {
+            fs.unlinkSync(path.join(this.workDir, file));
+          }
+        }
+      } catch {
+        // Ignore cleanup errors
+      }
+    }
+  }
 
   private buildCommonArgs(options: ContainerScanOptions | RepoScanOptions): string[] {
     const args: string[] = [];
@@ -354,10 +309,6 @@ export class QScannerRunner {
       args.push('--log-level', options.logLevel);
     }
 
-    if (this.config.skipTlsVerify) {
-      args.push('--skip-verify-tls=true');
-    }
-
     if (this.config.proxy) {
       args.push('--proxy', this.config.proxy);
     }
@@ -383,13 +334,8 @@ export class QScannerRunner {
       args.push('--output-dir', resultOutputDir);
     }
 
-    const maskedArgs = args.map((arg, i) => {
-      if (args[i - 1] === '--access-token') {
-        return '***';
-      }
-      return arg;
-    });
-    console.log(`Executing: ${this.binaryPath} ${maskedArgs.join(' ')}`);
+    // Token is passed via environment variable, not CLI args, so safe to log
+    console.log(`Executing: ${this.binaryPath} ${args.join(' ')}`);
 
     return new Promise((resolve, reject) => {
       let stdout = '';

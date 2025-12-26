@@ -1,19 +1,10 @@
-export type AuthMethod = 'access-token' | 'credentials';
+export type AuthMethod = 'access-token';
 
 export interface QScannerConfig {
   authMethod: AuthMethod;
-  accessToken?: string;
-  username?: string;
-  password?: string;
+  accessToken: string;
   pod: string;
-  version?: string;
   proxy?: string;
-  skipTlsVerify?: boolean;
-}
-
-export interface TokenResponse {
-  token: string;
-  expiresAt: Date;
 }
 
 export const POD_GATEWAY_URLS: Record<string, string> = {
@@ -23,7 +14,7 @@ export const POD_GATEWAY_URLS: Record<string, string> = {
   US4: 'https://gateway.qg4.apps.qualys.com',
   EU1: 'https://gateway.qg1.apps.qualys.eu',
   EU2: 'https://gateway.qg2.apps.qualys.eu',
-  CA1: 'https://gateway.qg4.apps.qualys.ca',
+  CA1: 'https://gateway.qg1.apps.qualys.ca',
   IN1: 'https://gateway.qg1.apps.qualys.in',
   AU1: 'https://gateway.qg1.apps.qualys.com.au',
   UK1: 'https://gateway.qg1.apps.qualys.co.uk',
@@ -33,7 +24,7 @@ export const POD_GATEWAY_URLS: Record<string, string> = {
 
 export interface QScannerOptions {
   mode: 'inventory-only' | 'scan-only' | 'get-report' | 'evaluate-policy';
-  scanTypes?: ('os' | 'sca' | 'secret' | 'malware' | 'fileinsight' | 'compliance')[];
+  scanTypes?: ('pkg' | 'secret' | 'malware' | 'fileinsight' | 'compliance')[];
   format?: ('json' | 'table' | 'spdx' | 'cyclonedx' | 'sarif')[];
   reportFormat?: ('table' | 'sarif' | 'json' | 'gitlab')[];
   outputDir?: string;

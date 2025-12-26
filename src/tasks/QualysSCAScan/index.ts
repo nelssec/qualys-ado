@@ -14,34 +14,39 @@ async function run(): Promise<void> {
   try {
     const qualysConnection = tl.getInput('qualysConnection', true)!;
 
-    let authMethod: AuthMethod;
-    let accessToken: string | undefined;
-    let username: string | undefined;
-    let password: string | undefined;
+    // Get the endpoint authorization object directly
+    // This works with endpoint-auth-scheme-none where parameters are stored in authorization.parameters
+    const endpointAuth = tl.getEndpointAuthorization(qualysConnection, false);
 
-    accessToken = tl.getEndpointAuthorizationParameter(qualysConnection, 'accessToken', true);
-    username = tl.getEndpointAuthorizationParameter(qualysConnection, 'username', true);
-    password = tl.getEndpointAuthorizationParameter(qualysConnection, 'password', true);
-    const pod = tl.getEndpointAuthorizationParameter(qualysConnection, 'pod', false);
+    if (!endpointAuth) {
+      throw new Error('Could not get endpoint authorization. Please check your service connection configuration.');
+    }
+
+    const params = endpointAuth.parameters || {};
+
+    const accessToken = params['accessToken'];
+    const pod = params['pod'];
+
+    if (!accessToken) {
+      throw new Error('Access token not found in service connection. Please configure your Qualys API Connection with an access token.');
+    }
 
     if (!pod) {
-      throw new Error('Qualys service connection must have pod configured');
+      throw new Error('Pod not found in service connection. Please configure your Qualys API Connection with a pod selection.');
     }
 
-    if (accessToken) {
-      authMethod = 'access-token';
-    } else if (username && password) {
-      authMethod = 'credentials';
-    } else {
-      throw new Error('Qualys service connection must have either accessToken or username/password configured');
-    }
+    const authMethod: AuthMethod = 'access-token';
+
+    console.log(`Pod: ${pod}`);
+    console.log(`Auth Method: ${authMethod}`);
+    console.log('Access Token: [CONFIGURED]');
 
     // Get task inputs
     const scanPath = tl.getPathInput('scanPath', true, true)!;
     const usePolicyEvaluation = tl.getBoolInput('usePolicyEvaluation', false);
     const policyTags = tl.getInput('policyTags', false) || '';
     const failOnSeverity = parseInt(tl.getInput('failOnSeverity', false) || '4', 10);
-    const scanTypesInput = tl.getInput('scanTypes', false) || 'sca';
+    const scanSecrets = tl.getBoolInput('scanSecrets', false);
     const scanTimeout = parseInt(tl.getInput('scanTimeout', false) || '300', 10);
     const continueOnError = tl.getBoolInput('continueOnError', false);
     const publishResults = tl.getBoolInput('publishResults', false);
@@ -51,13 +56,20 @@ async function run(): Promise<void> {
     const excludeFiles = tl.getInput('excludeFiles', false) || '';
     const offlineScan = tl.getBoolInput('offlineScan', false);
 
+    // Build scan types array: always use 'pkg' (os+sca), optionally add 'secret'
+    const scanTypes: ('pkg' | 'secret')[] = ['pkg'];
+    if (scanSecrets) {
+      scanTypes.push('secret');
+    }
+
     console.log('========================================');
     console.log('Qualys SCA Dependency Scan');
     console.log('========================================');
     console.log(`Scan Path: ${scanPath}`);
     console.log(`Pod: ${pod}`);
     console.log(`Policy Evaluation: ${usePolicyEvaluation}`);
-    console.log(`Scan Types: ${scanTypesInput}`);
+    console.log(`Scan Types: ${scanTypes.join(',')}`);
+    console.log(`Secrets Scanning: ${scanSecrets ? 'Enabled' : 'Disabled'}`);
     console.log(`Generate SBOM: ${generateSbom}`);
     if (generateSbom) {
       console.log(`SBOM Format: ${sbomFormat}`);
@@ -67,9 +79,7 @@ async function run(): Promise<void> {
     const config: QScannerConfig = {
       authMethod,
       accessToken,
-      username,
-      password,
-      pod: pod!,
+      pod,
     };
 
     const runner = new QScannerRunner(config);
@@ -79,11 +89,13 @@ async function run(): Promise<void> {
 
     // Configure scan options
     const outputDir = path.join(tl.getVariable('Agent.TempDirectory') || '/tmp', 'qualys-sca-results');
-    if (!fs.existsSync(outputDir)) {
-      fs.mkdirSync(outputDir, { recursive: true });
+    try {
+      if (!fs.existsSync(outputDir)) {
+        fs.mkdirSync(outputDir, { recursive: true });
+      }
+    } catch (err) {
+      throw new Error(`Failed to create output directory ${outputDir}: ${err instanceof Error ? err.message : String(err)}`);
     }
-
-    const scanTypes = scanTypesInput.split(',').map((s) => s.trim()) as RepoScanOptions['scanTypes'];
 
     // Build format array based on SBOM preferences
     const formats: RepoScanOptions['format'] = ['json'];
@@ -100,7 +112,7 @@ async function run(): Promise<void> {
     const scanOptions: RepoScanOptions = {
       scanPath,
       mode: usePolicyEvaluation ? 'evaluate-policy' : 'get-report',
-      scanTypes,
+      scanTypes: scanTypes as RepoScanOptions['scanTypes'],
       format: formats,
       reportFormat: ['sarif', 'table'],
       outputDir,

@@ -8,10 +8,10 @@
   "category": "Utility",
   "visibility": ["Build", "Release"],
   "runsOn": ["Agent", "DeploymentGroup"],
-  "author": "Your Organization",
+  "author": "Andrew Nelson (anelson@qualys.com)",
   "version": {
     "Major": 2,
-    "Minor": 0,
+    "Minor": 2,
     "Patch": 0
   },
   "instanceNameFormat": "Qualys SCA Scan: $(scanPath)",
@@ -61,18 +61,12 @@
       "groupName": "scan"
     },
     {
-      "name": "scanTypes",
-      "type": "pickList",
-      "label": "Scan Types",
+      "name": "scanSecrets",
+      "type": "boolean",
+      "label": "Scan for Secrets",
       "required": false,
-      "defaultValue": "sca",
-      "options": {
-        "sca": "SCA/Dependencies Only",
-        "sca,secret": "SCA + Secrets",
-        "os,sca": "OS + SCA",
-        "os,sca,secret": "OS + SCA + Secrets"
-      },
-      "helpMarkDown": "Types of scans to perform",
+      "defaultValue": "false",
+      "helpMarkDown": "Enable secrets detection to find exposed credentials, API keys, and tokens in your code",
       "groupName": "scan"
     },
     {

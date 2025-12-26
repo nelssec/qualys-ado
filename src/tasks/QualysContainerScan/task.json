@@ -8,10 +8,10 @@
   "category": "Utility",
   "visibility": ["Build", "Release"],
   "runsOn": ["Agent", "DeploymentGroup"],
-  "author": "Your Organization",
+  "author": "Andrew Nelson (anelson@qualys.com)",
   "version": {
     "Major": 2,
-    "Minor": 0,
+    "Minor": 2,
     "Patch": 0
   },
   "demands": [],
@@ -117,18 +117,12 @@
       "visibleRule": "usePolicyEvaluation = false"
     },
     {
-      "name": "scanTypes",
-      "type": "pickList",
-      "label": "Scan Types",
+      "name": "scanSecrets",
+      "type": "boolean",
+      "label": "Scan for Secrets",
       "required": false,
-      "defaultValue": "os,sca",
-      "options": {
-        "os": "OS Packages Only",
-        "sca": "SCA/Language Packages Only",
-        "os,sca": "OS + SCA (Recommended)",
-        "os,sca,secret": "OS + SCA + Secrets"
-      },
-      "helpMarkDown": "Types of scans to perform",
+      "defaultValue": "false",
+      "helpMarkDown": "Enable secrets detection to find exposed credentials, API keys, and tokens",
       "groupName": "advanced"
     },
     {
