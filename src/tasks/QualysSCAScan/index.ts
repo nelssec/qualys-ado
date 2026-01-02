@@ -8,6 +8,8 @@ import {
   QScannerExitCode,
   VulnerabilitySummary,
   AuthMethod,
+  WorkItemCreator,
+  SarifReport,
 } from '../../common';
 
 async function run(): Promise<void> {
@@ -55,6 +57,9 @@ async function run(): Promise<void> {
     const excludeDirs = tl.getInput('excludeDirs', false) || '';
     const excludeFiles = tl.getInput('excludeFiles', false) || '';
     const offlineScan = tl.getBoolInput('offlineScan', false);
+    const createWorkItems = tl.getBoolInput('createWorkItems', false);
+    const workItemSeverities = parseInt(tl.getInput('workItemSeverities', false) || '4', 10);
+    const workItemAreaPath = tl.getInput('workItemAreaPath', false) || '';
 
     // Build scan types array: always use 'pkg' (os+sca), optionally add 'secret'
     const scanTypes: ('pkg' | 'secret')[] = ['pkg'];
@@ -211,6 +216,59 @@ async function run(): Promise<void> {
       console.log(`SARIF report available at: ${result.reportFile}`);
       tl.uploadArtifact('QualysSCAResults', result.reportFile, 'qualys-sca-scan');
     }
+
+    // Create work items if enabled
+    let workItemsCreated = 0;
+    if (createWorkItems && result.reportFile && fs.existsSync(result.reportFile)) {
+      const accessToken = tl.getVariable('System.AccessToken');
+      const organizationUrl = tl.getVariable('System.TeamFoundationCollectionUri');
+      const project = tl.getVariable('System.TeamProject');
+
+      if (!accessToken) {
+        console.warn('Warning: System.AccessToken not available. Enable "Allow scripts to access OAuth token" in pipeline settings to create work items.');
+      } else if (!organizationUrl || !project) {
+        console.warn('Warning: Could not determine Azure DevOps organization or project.');
+      } else {
+        console.log('');
+        console.log('Creating work items for vulnerabilities...');
+
+        try {
+          const sarifContent = fs.readFileSync(result.reportFile, 'utf8');
+          const sarifReport: SarifReport = JSON.parse(sarifContent);
+
+          const workItemCreator = new WorkItemCreator({
+            organizationUrl,
+            project,
+            accessToken,
+            areaPath: workItemAreaPath || undefined,
+            minSeverity: workItemSeverities,
+          });
+
+          const vulns = workItemCreator.extractVulnerabilitiesFromSarif(sarifReport, 'sca');
+          console.log(`Found ${vulns.length} vulnerabilities at or above severity ${workItemSeverities}`);
+
+          if (vulns.length > 0) {
+            const workItemResult = await workItemCreator.createWorkItems(vulns);
+            workItemsCreated = workItemResult.created;
+
+            console.log('');
+            console.log('Work Item Summary:');
+            console.log(`  Created: ${workItemResult.created}`);
+            console.log(`  Skipped (duplicates): ${workItemResult.skipped}`);
+            if (workItemResult.failed > 0) {
+              console.log(`  Failed: ${workItemResult.failed}`);
+              for (const error of workItemResult.errors) {
+                console.warn(`    - ${error}`);
+              }
+            }
+          }
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          console.warn(`Warning: Failed to create work items: ${errorMsg}`);
+        }
+      }
+    }
+    tl.setVariable('workItemsCreated', workItemsCreated.toString());
 
     // Determine pass/fail
     let scanPassed = false;

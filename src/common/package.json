@@ -4,7 +4,9 @@
   "description": "Shared code for Qualys Azure DevOps tasks",
   "main": "index.js",
   "types": "index.d.ts",
-  "dependencies": {},
+  "dependencies": {
+    "azure-devops-node-api": "^14.0.0"
+  },
   "devDependencies": {
     "@types/node": "^20.10.0",
     "typescript": "^5.3.3"

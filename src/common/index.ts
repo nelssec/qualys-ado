@@ -6,3 +6,5 @@ export { withRetry, defaultRetryConfig } from './utils/retry';
 export type { RetryConfig } from './utils/retry';
 export { ConsoleLogger, TaskLogger, LogLevel } from './utils/logger';
 export type { Logger } from './utils/logger';
+export { WorkItemCreator } from './workitems/WorkItemCreator';
+export type { WorkItemConfig, VulnerabilityInfo, WorkItemCreationResult } from './workitems/WorkItemCreator';

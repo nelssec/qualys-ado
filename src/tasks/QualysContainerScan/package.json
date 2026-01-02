@@ -4,7 +4,8 @@
   "description": "Qualys Container Security Scan Task",
   "main": "index.js",
   "dependencies": {
-    "azure-pipelines-task-lib": "^4.17.0"
+    "azure-pipelines-task-lib": "^4.17.0",
+    "azure-devops-node-api": "^14.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",

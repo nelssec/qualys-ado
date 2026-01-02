@@ -10,6 +10,7 @@ Integrate Qualys vulnerability scanning into your Azure Pipelines using the QSca
 - **Policy-Based Gating**: Use centralized Qualys policies to control build pass/fail
 - **SBOM Generation**: Generate Software Bill of Materials in SPDX or CycloneDX format
 - **SARIF Reports**: Publish results to Azure DevOps code scanning
+- **Work Item Creation**: Automatically create Bug work items for discovered vulnerabilities
 
 ## Installation
 
@@ -74,6 +75,11 @@ Scans Docker container images for vulnerabilities.
     scanTimeout: 300                   # Timeout in seconds
     continueOnError: false             # Continue pipeline if scan fails
     publishResults: true               # Publish SARIF to Azure DevOps
+
+    # Work Items (requires OAuth token access)
+    createWorkItems: false             # Create Bug work items for vulnerabilities
+    workItemSeverities: '4'            # Min severity: 5=Critical, 4=High, 3=Medium
+    workItemAreaPath: ''               # Optional area path for work items
 ```
 
 #### Output Variables
@@ -88,6 +94,7 @@ Scans Docker container images for vulnerabilities.
 | `policyResult` | ALLOW, DENY, or AUDIT |
 | `scanPassed` | true/false |
 | `reportPath` | Path to SARIF report |
+| `workItemsCreated` | Number of work items created |
 
 ### QualysSCAScan@2
 
@@ -116,7 +123,27 @@ Scans code dependencies for vulnerabilities.
     # Advanced
     continueOnError: false
     publishResults: true
+
+    # Work Items (requires OAuth token access)
+    createWorkItems: false             # Create Bug work items for vulnerabilities
+    workItemSeverities: '4'            # Min severity: 5=Critical, 4=High, 3=Medium
+    workItemAreaPath: ''               # Optional area path for work items
 ```
+
+#### Output Variables
+
+| Variable | Description |
+|----------|-------------|
+| `vulnerabilityCount` | Total vulnerabilities found |
+| `criticalCount` | Critical severity count |
+| `highCount` | High severity count |
+| `mediumCount` | Medium severity count |
+| `lowCount` | Low severity count |
+| `policyResult` | ALLOW, DENY, or AUDIT |
+| `scanPassed` | true/false |
+| `reportPath` | Path to SARIF report |
+| `sbomPath` | Path to generated SBOM file(s) |
+| `workItemsCreated` | Number of work items created |
 
 ## Pipeline Examples
 
@@ -209,6 +236,43 @@ stages:
     echo "Policy Result: $(qualysScan.policyResult)"
   displayName: 'Show Scan Results'
 ```
+
+### Creating Work Items for Vulnerabilities
+
+Automatically create Bug work items in Azure Boards for discovered vulnerabilities:
+
+```yaml
+trigger:
+  - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+steps:
+  - task: QualysContainerScan@2
+    displayName: 'Scan and Create Work Items'
+    inputs:
+      qualysConnection: 'QualysConnection'
+      imageId: 'myapp:$(Build.BuildId)'
+      usePolicyEvaluation: true
+
+      # Enable work item creation
+      createWorkItems: true
+      workItemSeverities: '4'          # Create for High and Critical
+      workItemAreaPath: 'MyProject\Security'
+    env:
+      SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+```
+
+**Important**: To create work items, you must:
+1. Enable **"Allow scripts to access OAuth token"** in your pipeline settings, OR
+2. Pass the token explicitly via `env: SYSTEM_ACCESSTOKEN: $(System.AccessToken)`
+
+Work items are created as **Bug** type with:
+- Title: `[Severity] CVE-ID: Description`
+- Tags: `qualys-vuln:{id}`, `security`, severity level
+- Priority mapped from severity (Critical=1, High=2, etc.)
+- Duplicate detection prevents creating multiple bugs for the same vulnerability
 
 ## Qualys Policy Setup
 
@@ -305,6 +369,15 @@ AUDIT means no policies matched. Create policies in Qualys and tag them, then re
 - Use `storageDriver: 'docker-overlay2'` if Docker is available (faster than pulling image)
 - Increase `scanTimeout` if needed
 - Consider `offlineScan: true` for SCA to skip upload
+
+### Work items not created
+
+If work items are not being created:
+
+1. **Check OAuth token access**: Enable "Allow scripts to access OAuth token" in pipeline settings, or pass `env: SYSTEM_ACCESSTOKEN: $(System.AccessToken)`
+2. **Verify permissions**: The build service account needs permission to create work items in the project
+3. **Check severity filter**: By default only High and Critical (4+) create work items. Lower `workItemSeverities` to include more.
+4. **Duplicates are skipped**: If the same CVE/QID was found before, a new work item won't be created (check tags for `qualys-vuln:{id}`)
 
 ## License
 

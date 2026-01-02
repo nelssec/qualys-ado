@@ -36,6 +36,11 @@
       "name": "advanced",
       "displayName": "Advanced Options",
       "isExpanded": false
+    },
+    {
+      "name": "workitems",
+      "displayName": "Work Items",
+      "isExpanded": false
     }
   ],
   "inputs": [
@@ -151,6 +156,42 @@
       "defaultValue": "true",
       "helpMarkDown": "Publish SARIF results to Azure DevOps for code scanning alerts",
       "groupName": "advanced"
+    },
+    {
+      "name": "createWorkItems",
+      "type": "boolean",
+      "label": "Create Work Items",
+      "required": false,
+      "defaultValue": "false",
+      "helpMarkDown": "Create Azure DevOps Bug work items for discovered vulnerabilities. Requires 'Allow scripts to access OAuth token' enabled in pipeline settings.",
+      "groupName": "workitems"
+    },
+    {
+      "name": "workItemSeverities",
+      "type": "pickList",
+      "label": "Minimum Severity",
+      "required": false,
+      "defaultValue": "4",
+      "options": {
+        "5": "Critical only",
+        "4": "High and above",
+        "3": "Medium and above",
+        "2": "Low and above",
+        "1": "All severities"
+      },
+      "helpMarkDown": "Create work items for vulnerabilities at or above this severity level",
+      "groupName": "workitems",
+      "visibleRule": "createWorkItems = true"
+    },
+    {
+      "name": "workItemAreaPath",
+      "type": "string",
+      "label": "Area Path",
+      "required": false,
+      "defaultValue": "",
+      "helpMarkDown": "Area path for created work items. Defaults to project root if not specified.",
+      "groupName": "workitems",
+      "visibleRule": "createWorkItems = true"
     }
   ],
   "outputVariables": [
@@ -185,6 +226,10 @@
     {
       "name": "reportPath",
       "description": "Path to the SARIF report file"
+    },
+    {
+      "name": "workItemsCreated",
+      "description": "Number of work items created"
     }
   ],
   "execution": {
@@ -205,7 +250,8 @@
         "lowCount",
         "policyResult",
         "scanPassed",
-        "reportPath"
+        "reportPath",
+        "workItemsCreated"
       ]
     }
   }
