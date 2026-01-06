@@ -15,7 +15,7 @@ import {
   VulnerabilitySummary,
 } from '../api/types';
 
-const QSCANNER_BINARY_URL = 'https://github.com/nelssec/qualys-lambda/raw/main/scanner-lambda/qscanner.gz';
+const QSCANNER_BINARY_URL = 'https://raw.githubusercontent.com/nelssec/qualys-lambda/main/scanner-lambda/qscanner.gz';
 const QSCANNER_SHA256 = '1a31b854154ee4594bb94e28aa86460b14a75687085d097f949e91c5fd00413d';
 
 export class QScannerRunner {

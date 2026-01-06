@@ -193,7 +193,7 @@ async function run(): Promise<void> {
     if (publishResults && result.reportFile && fs.existsSync(result.reportFile)) {
       console.log('');
       console.log(`SARIF report available at: ${result.reportFile}`);
-      tl.uploadArtifact('QualysScanResults', result.reportFile, 'qualys-container-scan');
+      tl.uploadArtifact('qualys-container-scan', result.reportFile, 'qualys-container-scan');
 
       // Also add as attachment for build results tab
       const reportFileName = path.basename(result.reportFile);

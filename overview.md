@@ -32,31 +32,36 @@ Navigate to **Project Settings > Service connections** and create a new **Qualys
   inputs:
     qualysConnection: 'QualysConnection'
     imageId: 'myregistry/myapp:$(Build.BuildId)'
-    usePolicyEvaluation: true
-    scanSecrets: true  # Optional: enable secrets detection
+    usePolicyEvaluation: false
+    maxCritical: 0      # Fail on any critical vulnerabilities
+    maxHigh: 5          # Allow up to 5 high severity
+    scanSecrets: true   # Optional: enable secrets detection
 
 # Code scanning (SCA)
 - task: QualysCodeScan@2
   inputs:
     qualysConnection: 'QualysConnection'
     scanPath: '$(Build.SourcesDirectory)'
+    usePolicyEvaluation: false
+    maxCritical: 0      # Fail on any critical vulnerabilities
+    maxHigh: -1         # Unlimited high severity allowed (-1 = unlimited)
     generateSbom: true
-    scanSecrets: true  # Optional: enable secrets detection
+    scanSecrets: true   # Optional: enable secrets detection
 ```
 
 ## Requirements
 
 - Qualys subscription with Container Security module enabled
 - Qualys Access Token from Container Security
-- Azure DevOps build agent (Linux, macOS, or Windows)
+- Linux-based Azure DevOps build agent (amd64)
 
 ## Supported Platforms
 
-| Platform | Agent Support |
-|----------|---------------|
-| Linux | Supported |
-| macOS | Supported |
-| Windows | Supported |
+| Platform | Architecture |
+|----------|--------------|
+| Linux | amd64 |
+
+> **Note:** Use a Linux-based build agent (e.g., `ubuntu-latest`).
 
 ## Supported Qualys Pods
 
@@ -88,12 +93,12 @@ For questions and issues, contact [Qualys Support](https://www.qualys.com/suppor
 - Secrets detection for exposed credentials, API keys, and tokens
 - SARIF report publishing to Azure DevOps
 - Automatic Bug work item creation for discovered vulnerabilities
-- Linux, macOS, and Windows agent support
+- Linux amd64 agent support
 
 **Build Results UI:**
 - Dedicated scan results tabs for Container and Code scans
-- Vulnerability table with QID, severity, CVSS score, and package details
+- Vulnerability table with QID, CVE, severity, CVSS score, and package details
 - Severity breakdown cards (Critical, High, Medium, Low, Info)
 - Sortable and filterable vulnerability list with search
 - Pagination for large result sets
-- Direct links to Qualys QID details
+- Direct links to CVE details on NVD

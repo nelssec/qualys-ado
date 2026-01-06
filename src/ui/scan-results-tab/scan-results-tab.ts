@@ -645,6 +645,7 @@ dBz" alt="Qualys Logo" />
                                 Severity <span class="sort-icon">${this.sortDirection === "desc" ? "\u25BC" : "\u25B2"}</span>
                             </th>
                             <th data-sort="qid">QID</th>
+                            <th data-sort="cves">CVE</th>
                             <th data-sort="cvssScore" class="${this.sortColumn === "cvssScore" ? "sorted" : ""}">
                                 CVSS <span class="sort-icon">${this.sortDirection === "desc" ? "\u25BC" : "\u25B2"}</span>
                             </th>
@@ -666,13 +667,12 @@ dBz" alt="Qualys Logo" />
 
     private renderVulnerabilityRow(v: VulnerabilityRow): string {
         const severityClass = v.severityLabel.toLowerCase();
-        const qidDisplay = v.qid
-            ? `<a href="https://qualys.com/qid/${v.qid}" target="_blank" class="qid-link">QID-${v.qid}</a>`
-            : (v.cves.length > 0
-                ? v.cves.map(cve =>
-                    `<a href="https://nvd.nist.gov/vuln/detail/${cve}" target="_blank" class="cve-link">${cve}</a>`
-                  ).join(", ")
-                : v.id);
+        const qidDisplay = v.qid ? `QID-${v.qid}` : "-";
+        const cveDisplay = v.cves.length > 0
+            ? v.cves.map(cve =>
+                `<a href="https://nvd.nist.gov/vuln/detail/${cve}" target="_blank" class="cve-link">${cve}</a>`
+              ).join(", ")
+            : "-";
 
         const cvssDisplay = v.cvssScore !== undefined
             ? `<span class="cvss-score ${this.getCvssClass(v.cvssScore)}">${v.cvssScore.toFixed(1)}</span>`
@@ -682,6 +682,7 @@ dBz" alt="Qualys Logo" />
             <tr class="vuln-row">
                 <td><span class="severity-badge ${severityClass}">${v.severityLabel}</span></td>
                 <td>${qidDisplay}</td>
+                <td>${cveDisplay}</td>
                 <td>${cvssDisplay}</td>
                 <td><span class="package-name">${this.escapeHtml(v.packageName)}</span></td>
                 <td><span class="version-info">${this.escapeHtml(v.installedVersion)}</span></td>

@@ -301,9 +301,9 @@ Configure policies in the Qualys portal for automated pass/fail decisions:
 
 | Platform | Architecture |
 |----------|--------------|
-| Linux | amd64, arm64 |
-| macOS | amd64, arm64 |
-| Windows | amd64 |
+| Linux | amd64 |
+
+> **Note:** QScanner CLI currently only supports Linux amd64. Use a Linux-based build agent (e.g., `ubuntu-latest` in Azure Pipelines).
 
 ## Qualys Pods
 
@@ -365,7 +365,7 @@ qualys-ado/
 
 ### QScanner binary not found
 
-The task downloads QScanner automatically. Ensure the build agent has internet access to `www.qualys.com`.
+The task downloads QScanner automatically. Ensure the build agent has internet access to `raw.githubusercontent.com`.
 
 ### Authentication failed
 
