@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Qualys Scan Results</title>
+    <link rel="stylesheet" href="https://cdn.vsassets.io/v/M239_20240108.5/_content/Frameworks/Common-Library/css/fabric-core-min.css">
+</head>
+<body class="ms-Fabric">
+    <div id="qualys-scan-results" class="qualys-container">
+        <div id="loading" class="loading-container">
+            <div class="loading-spinner"></div>
+            <p>Loading scan results...</p>
+        </div>
+        <div id="error" class="error-container" style="display: none;">
+            <div class="error-icon">!</div>
+            <p id="error-message">Unable to load scan results.</p>
+        </div>
+        <div id="content" style="display: none;"></div>
+    </div>
+    <script src="scan-results-tab.js"></script>
+</body>
+</html>

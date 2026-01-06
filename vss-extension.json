@@ -48,9 +48,18 @@
       "packagePath": "QualysSCAScan"
     },
     {
+      "path": "dist/ui",
+      "addressable": true,
+      "packagePath": "ui"
+    },
+    {
       "path": "images",
       "addressable": true
     }
+  ],
+  "scopes": [
+    "vso.build",
+    "vso.work"
   ],
   "contributions": [
     {
@@ -130,6 +139,22 @@
       "targets": ["ms.vss-distributed-task.tasks"],
       "properties": {
         "name": "QualysSCAScan"
+      }
+    },
+    {
+      "id": "qualys-scan-results-tab",
+      "type": "ms.vss-build-web.build-results-tab",
+      "description": "Displays Qualys security scan results",
+      "targets": ["ms.vss-build-web.build-results-view"],
+      "properties": {
+        "name": "Qualys Scan",
+        "uri": "ui/scan-results-tab/scan-results-tab.html",
+        "supportsTasks": [
+          "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+          "b2c3d4e5-f6a7-8901-bcde-f23456789012"
+        ],
+        "order": 50,
+        "dynamic": true
       }
     }
   ]

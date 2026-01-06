@@ -215,6 +215,11 @@ async function run(): Promise<void> {
       console.log('');
       console.log(`SARIF report available at: ${result.reportFile}`);
       tl.uploadArtifact('QualysSCAResults', result.reportFile, 'qualys-sca-scan');
+
+      // Also add as attachment for build results tab
+      const reportFileName = path.basename(result.reportFile);
+      tl.addAttachment('qualys.scan.sarif', reportFileName, result.reportFile);
+      console.log(`SARIF attachment added: ${reportFileName}`);
     }
 
     // Create work items if enabled

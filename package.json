@@ -6,7 +6,8 @@
   "license": "MIT",
   "scripts": {
     "clean": "rimraf dist",
-    "compile": "npm run compile:common && npm run compile:tasks",
+    "compile": "npm run compile:common && npm run compile:tasks && npm run compile:ui",
+    "compile:ui": "webpack --config webpack.config.js",
     "compile:common": "tsc -p src/common/tsconfig.json",
     "compile:tasks": "npm run compile:cs && npm run compile:sca",
     "compile:cs": "tsc -p src/tasks/QualysContainerScan/tsconfig.json",
@@ -25,6 +26,8 @@
     "publish:prod": "tfx extension publish --manifest-globs vss-extension.json"
   },
   "dependencies": {
+    "azure-devops-extension-api": "^4.265.0",
+    "azure-devops-extension-sdk": "^4.2.0",
     "azure-devops-node-api": "^14.0.0"
   },
   "devDependencies": {
@@ -32,13 +35,20 @@
     "@types/node": "^20.10.0",
     "@typescript-eslint/eslint-plugin": "^6.15.0",
     "@typescript-eslint/parser": "^6.15.0",
+    "copy-webpack-plugin": "^11.0.0",
+    "css-loader": "^6.11.0",
     "eslint": "^8.56.0",
     "eslint-config-prettier": "^9.1.0",
+    "html-webpack-plugin": "^5.6.5",
     "mocha": "^10.2.0",
     "prettier": "^3.1.1",
     "rimraf": "^5.0.5",
+    "style-loader": "^3.3.4",
     "tfx-cli": "^0.22.0",
-    "typescript": "^5.3.3"
+    "ts-loader": "^9.5.4",
+    "typescript": "^5.3.3",
+    "webpack": "^5.104.1",
+    "webpack-cli": "^5.1.4"
   },
   "engines": {
     "node": ">=20.0.0"
