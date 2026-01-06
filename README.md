@@ -64,7 +64,11 @@ Scans Docker container images for vulnerabilities.
     policyTags: 'production,ci-cd'     # Filter which policies apply
 
     # Local Thresholds (when usePolicyEvaluation=false)
-    failOnSeverity: '4'                # 5=Critical, 4=High, 3=Medium, 2=Low
+    # Set max allowed count per severity. -1 = unlimited (ignore)
+    maxCritical: '0'                   # Fail if any critical found (default)
+    maxHigh: '0'                       # Fail if any high found (default)
+    maxMedium: '-1'                    # Don't fail on medium (default)
+    maxLow: '-1'                       # Don't fail on low (default)
 
     # Scan Options
     scanSecrets: false                 # Enable secrets detection
@@ -96,20 +100,27 @@ Scans Docker container images for vulnerabilities.
 | `reportPath` | Path to SARIF report |
 | `workItemsCreated` | Number of work items created |
 
-### QualysSCAScan@2
+### QualysCodeScan@2
 
-Scans code dependencies for vulnerabilities.
+Scans code dependencies for vulnerabilities (Software Composition Analysis).
 
 ```yaml
-- task: QualysSCAScan@2
+- task: QualysCodeScan@2
   inputs:
     # Required
     qualysConnection: 'QualysConnection'
     scanPath: '$(Build.SourcesDirectory)'
 
-    # Policy Evaluation
-    usePolicyEvaluation: true
+    # Policy Evaluation (recommended)
+    usePolicyEvaluation: true          # Use Qualys centralized policies
     policyTags: 'sca-policy'
+
+    # Local Thresholds (when usePolicyEvaluation=false)
+    # Set max allowed count per severity. -1 = unlimited (ignore)
+    maxCritical: '0'                   # Fail if any critical found (default)
+    maxHigh: '0'                       # Fail if any high found (default)
+    maxMedium: '-1'                    # Don't fail on medium (default)
+    maxLow: '-1'                       # Don't fail on low (default)
 
     # Scan Options
     scanSecrets: false                 # Enable secrets detection
@@ -203,8 +214,8 @@ stages:
               scanSecrets: true
               publishResults: true
 
-          - task: QualysSCAScan@2
-            displayName: 'Dependency Scan'
+          - task: QualysCodeScan@2
+            displayName: 'Code Scan'
             inputs:
               qualysConnection: 'QualysConnection'
               scanPath: '$(Build.SourcesDirectory)'
@@ -343,7 +354,7 @@ qualys-ado/
 │   │   └── utils/                 # Logging, retry utilities
 │   └── tasks/
 │       ├── QualysContainerScan/   # Container scan task
-│       └── QualysSCAScan/         # SCA scan task
+│       └── QualysCodeScan/        # Code scan task (SCA)
 ├── docs/                          # Documentation
 ├── vss-extension.json             # Extension manifest
 ├── overview.md                    # Marketplace description

@@ -44,6 +44,7 @@ export interface RepoScanOptions extends QScannerOptions {
   excludeDirs?: string[];
   excludeFiles?: string[];
   offlineScan?: boolean;
+  showPerfStat?: boolean;
 }
 
 export enum QScannerExitCode {

@@ -47,7 +47,10 @@ async function run(): Promise<void> {
     const scanPath = tl.getPathInput('scanPath', true, true)!;
     const usePolicyEvaluation = tl.getBoolInput('usePolicyEvaluation', false);
     const policyTags = tl.getInput('policyTags', false) || '';
-    const failOnSeverity = parseInt(tl.getInput('failOnSeverity', false) || '4', 10);
+    const maxCritical = parseInt(tl.getInput('maxCritical', false) || '0', 10);
+    const maxHigh = parseInt(tl.getInput('maxHigh', false) || '0', 10);
+    const maxMedium = parseInt(tl.getInput('maxMedium', false) || '-1', 10);
+    const maxLow = parseInt(tl.getInput('maxLow', false) || '-1', 10);
     const scanSecrets = tl.getBoolInput('scanSecrets', false);
     const scanTimeout = parseInt(tl.getInput('scanTimeout', false) || '300', 10);
     const continueOnError = tl.getBoolInput('continueOnError', false);
@@ -68,11 +71,14 @@ async function run(): Promise<void> {
     }
 
     console.log('========================================');
-    console.log('Qualys SCA Dependency Scan');
+    console.log('Qualys Code Scan');
     console.log('========================================');
     console.log(`Scan Path: ${scanPath}`);
     console.log(`Pod: ${pod}`);
     console.log(`Policy Evaluation: ${usePolicyEvaluation}`);
+    if (!usePolicyEvaluation) {
+      console.log(`Thresholds: Critical=${maxCritical}, High=${maxHigh}, Medium=${maxMedium}, Low=${maxLow} (-1=unlimited)`);
+    }
     console.log(`Scan Types: ${scanTypes.join(',')}`);
     console.log(`Secrets Scanning: ${scanSecrets ? 'Enabled' : 'Disabled'}`);
     console.log(`Generate SBOM: ${generateSbom}`);
@@ -122,8 +128,9 @@ async function run(): Promise<void> {
       reportFormat: ['sarif', 'table'],
       outputDir,
       timeout: scanTimeout,
-      logLevel: 'info',
+      logLevel: 'debug',
       offlineScan,
+      showPerfStat: true,
     };
 
     if (excludeDirs) {
@@ -138,12 +145,27 @@ async function run(): Promise<void> {
       scanOptions.policyTags = policyTags.split(',').map((t) => t.trim());
     }
 
-    // Execute scan
+    // Execute scan with retry logic for vuln report fetch failures
     console.log('');
-    console.log('Starting SCA dependency scan...');
+    console.log('Starting code scan...');
     console.log('----------------------------------------');
 
-    const result = await runner.scanRepo(scanOptions);
+    const MAX_RETRIES = 5;
+    const RETRY_DELAYS = [30, 60, 90, 120, 150]; // seconds between retries
+    let result = await runner.scanRepo(scanOptions);
+    let retryCount = 0;
+
+    // Retry if vuln report fetch failed (exit code 40)
+    while (result.exitCode === QScannerExitCode.FAILED_TO_GET_VULN_REPORT && retryCount < MAX_RETRIES) {
+      const delay = RETRY_DELAYS[retryCount] || 60;
+      retryCount++;
+      console.log('');
+      console.log(`Vulnerability report not ready yet. Waiting ${delay}s before retry ${retryCount}/${MAX_RETRIES}...`);
+      await new Promise(resolve => setTimeout(resolve, delay * 1000));
+      console.log('Retrying vulnerability report fetch...');
+      console.log('----------------------------------------');
+      result = await runner.scanRepo(scanOptions);
+    }
 
     console.log('----------------------------------------');
     console.log('');
@@ -290,25 +312,22 @@ async function run(): Promise<void> {
         console.log('Warning: No Qualys policies matched for evaluation (AUDIT)');
       }
     } else {
-      // Use local threshold evaluation based on severity
-      if (failOnSeverity > 0) {
-        if (failOnSeverity <= 5 && summary.critical > 0) {
-          failureReasons.push(`Found ${summary.critical} critical vulnerabilities`);
-        }
-        if (failOnSeverity <= 4 && summary.high > 0) {
-          failureReasons.push(`Found ${summary.high} high severity vulnerabilities`);
-        }
-        if (failOnSeverity <= 3 && summary.medium > 0) {
-          failureReasons.push(`Found ${summary.medium} medium severity vulnerabilities`);
-        }
-        if (failOnSeverity <= 2 && summary.low > 0) {
-          failureReasons.push(`Found ${summary.low} low severity vulnerabilities`);
-        }
-
-        scanPassed = failureReasons.length === 0;
-      } else {
-        scanPassed = true;
+      // Use local count-based threshold evaluation
+      // -1 means unlimited (don't check that severity)
+      if (maxCritical >= 0 && summary.critical > maxCritical) {
+        failureReasons.push(`Found ${summary.critical} critical vulnerabilities (max: ${maxCritical})`);
       }
+      if (maxHigh >= 0 && summary.high > maxHigh) {
+        failureReasons.push(`Found ${summary.high} high severity vulnerabilities (max: ${maxHigh})`);
+      }
+      if (maxMedium >= 0 && summary.medium > maxMedium) {
+        failureReasons.push(`Found ${summary.medium} medium severity vulnerabilities (max: ${maxMedium})`);
+      }
+      if (maxLow >= 0 && summary.low > maxLow) {
+        failureReasons.push(`Found ${summary.low} low severity vulnerabilities (max: ${maxLow})`);
+      }
+
+      scanPassed = failureReasons.length === 0;
     }
 
     // Check for scan execution errors
@@ -327,7 +346,7 @@ async function run(): Promise<void> {
     console.log('========================================');
     if (scanPassed) {
       console.log('SCAN PASSED');
-      tl.setResult(tl.TaskResult.Succeeded, 'SCA scan completed successfully');
+      tl.setResult(tl.TaskResult.Succeeded, 'Code scan completed successfully');
     } else {
       console.log('SCAN FAILED');
       for (const reason of failureReasons) {

@@ -151,6 +151,10 @@ export class QScannerRunner {
       args.push('--offline-scan=true');
     }
 
+    if (options.showPerfStat) {
+      args.push('--show-perf-stat');
+    }
+
     return this.executeQScanner(args, options.outputDir);
   }
 

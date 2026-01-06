@@ -35,8 +35,8 @@ Navigate to **Project Settings > Service connections** and create a new **Qualys
     usePolicyEvaluation: true
     scanSecrets: true  # Optional: enable secrets detection
 
-# Software composition analysis
-- task: QualysSCAScan@2
+# Code scanning (SCA)
+- task: QualysCodeScan@2
   inputs:
     qualysConnection: 'QualysConnection'
     scanPath: '$(Build.SourcesDirectory)'
@@ -73,11 +73,27 @@ For questions and issues, contact [Qualys Support](https://www.qualys.com/suppor
 ## Release Notes
 
 ### 1.0.0
-- Simplified service connection with Access Token authentication
-- Streamlined setup with pod selection dropdown
-- Unified package scanning (pkg) combining OS and application vulnerabilities
-- Optional secrets detection for containers and source code
+**Initial Release**
+
+**Tasks:**
+- **QualysContainerScan@2** - Scan Docker container images for vulnerabilities
+- **QualysCodeScan@2** - Scan code dependencies (SCA) for vulnerabilities
+
+**Features:**
+- Access Token authentication with Qualys Container Security
+- Support for all Qualys pods worldwide (US, EU, CA, IN, AU, UK, AE, KSA)
+- Qualys cloud policy evaluation for centralized pass/fail decisions
+- Count-based vulnerability thresholds (e.g., fail if >1 Critical or >3 High)
 - SBOM generation in SPDX and CycloneDX formats
-- Policy-based build gating with Qualys centralized policies
-- Support for all Qualys pods worldwide
+- Secrets detection for exposed credentials, API keys, and tokens
+- SARIF report publishing to Azure DevOps
+- Automatic Bug work item creation for discovered vulnerabilities
 - Linux, macOS, and Windows agent support
+
+**Build Results UI:**
+- Dedicated scan results tabs for Container and Code scans
+- Vulnerability table with QID, severity, CVSS score, and package details
+- Severity breakdown cards (Critical, High, Medium, Low, Info)
+- Sortable and filterable vulnerability list with search
+- Pagination for large result sets
+- Direct links to Qualys QID details

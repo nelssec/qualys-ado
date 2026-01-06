@@ -1,9 +1,9 @@
 {
   "$schema": "https://raw.githubusercontent.com/Microsoft/azure-pipelines-task-lib/master/tasks.schema.json",
   "id": "b2c3d4e5-f6a7-8901-bcde-f23456789012",
-  "name": "QualysSCAScan",
-  "friendlyName": "Qualys SCA Dependency Scan",
-  "description": "Scan code dependencies for vulnerabilities using Qualys QScanner CLI",
+  "name": "QualysCodeScan",
+  "friendlyName": "Qualys Code Scan",
+  "description": "Scan code for vulnerabilities using Qualys QScanner CLI",
   "helpMarkDown": "[Learn more](https://docs.qualys.com/en/cs/latest/)",
   "category": "Utility",
   "visibility": ["Build", "Release"],
@@ -11,10 +11,10 @@
   "author": "Andrew Nelson (anelson@qualys.com)",
   "version": {
     "Major": 2,
-    "Minor": 2,
+    "Minor": 0,
     "Patch": 0
   },
-  "instanceNameFormat": "Qualys SCA Scan: $(scanPath)",
+  "instanceNameFormat": "Qualys Code Scan: $(scanPath)",
   "groups": [
     {
       "name": "connection",
@@ -119,20 +119,42 @@
       "visibleRule": "usePolicyEvaluation = true"
     },
     {
-      "name": "failOnSeverity",
-      "type": "pickList",
-      "label": "Fail on Severity",
+      "name": "maxCritical",
+      "type": "string",
+      "label": "Max Critical Vulnerabilities",
       "required": false,
-      "defaultValue": "4",
-      "options": {
-        "5": "Critical (5)",
-        "4": "High (4) and above",
-        "3": "Medium (3) and above",
-        "2": "Low (2) and above",
-        "1": "Informational (1) and above",
-        "0": "Do not fail on severity"
-      },
-      "helpMarkDown": "Fail the build if vulnerabilities at or above this severity are found (local threshold, used when policy evaluation is disabled)",
+      "defaultValue": "0",
+      "helpMarkDown": "Maximum allowed critical vulnerabilities before failing. Set to -1 for unlimited.",
+      "groupName": "policy",
+      "visibleRule": "usePolicyEvaluation = false"
+    },
+    {
+      "name": "maxHigh",
+      "type": "string",
+      "label": "Max High Vulnerabilities",
+      "required": false,
+      "defaultValue": "0",
+      "helpMarkDown": "Maximum allowed high severity vulnerabilities before failing. Set to -1 for unlimited.",
+      "groupName": "policy",
+      "visibleRule": "usePolicyEvaluation = false"
+    },
+    {
+      "name": "maxMedium",
+      "type": "string",
+      "label": "Max Medium Vulnerabilities",
+      "required": false,
+      "defaultValue": "-1",
+      "helpMarkDown": "Maximum allowed medium severity vulnerabilities before failing. Set to -1 for unlimited.",
+      "groupName": "policy",
+      "visibleRule": "usePolicyEvaluation = false"
+    },
+    {
+      "name": "maxLow",
+      "type": "string",
+      "label": "Max Low Vulnerabilities",
+      "required": false,
+      "defaultValue": "-1",
+      "helpMarkDown": "Maximum allowed low severity vulnerabilities before failing. Set to -1 for unlimited.",
       "groupName": "policy",
       "visibleRule": "usePolicyEvaluation = false"
     },
@@ -268,12 +290,12 @@
   ],
   "execution": {
     "Node20_1": {
-      "target": "dist/tasks/QualysSCAScan/index.js"
+      "target": "dist/tasks/QualysCodeScan/index.js"
     }
   },
   "restrictions": {
     "commands": {
-      "mode": "restricted"
+      "mode": "any"
     },
     "settableVariables": {
       "allowed": [

@@ -44,8 +44,8 @@
       "packagePath": "QualysContainerScan"
     },
     {
-      "path": "src/tasks/QualysSCAScan",
-      "packagePath": "QualysSCAScan"
+      "path": "src/tasks/QualysCodeScan",
+      "packagePath": "QualysCodeScan"
     },
     {
       "path": "dist/ui",
@@ -134,26 +134,40 @@
       }
     },
     {
-      "id": "qualys-sca-scan-task",
+      "id": "qualys-code-scan-task",
       "type": "ms.vss-distributed-task.task",
       "targets": ["ms.vss-distributed-task.tasks"],
       "properties": {
-        "name": "QualysSCAScan"
+        "name": "QualysCodeScan"
       }
     },
     {
-      "id": "qualys-scan-results-tab",
+      "id": "qualys-image-scan-results-tab",
       "type": "ms.vss-build-web.build-results-tab",
-      "description": "Displays Qualys security scan results",
+      "description": "Displays Qualys Container Image scan results",
       "targets": ["ms.vss-build-web.build-results-view"],
       "properties": {
-        "name": "Qualys Scan",
+        "name": "Qualys Image Scan",
         "uri": "ui/scan-results-tab/scan-results-tab.html",
         "supportsTasks": [
-          "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-          "b2c3d4e5-f6a7-8901-bcde-f23456789012"
+          "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
         ],
         "order": 50,
+        "dynamic": true
+      }
+    },
+    {
+      "id": "qualys-code-scan-results-tab",
+      "type": "ms.vss-build-web.build-results-tab",
+      "description": "Displays Qualys Code scan results",
+      "targets": ["ms.vss-build-web.build-results-view"],
+      "properties": {
+        "name": "Qualys Code Scan",
+        "uri": "ui/scan-results-tab/scan-results-tab.html",
+        "supportsTasks": [
+          "b2c3d4e5-f6a7-8901-bcde-f23456789012"
+        ],
+        "order": 51,
         "dynamic": true
       }
     }

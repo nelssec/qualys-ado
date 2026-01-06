@@ -1,6 +1,5 @@
 import * as SDK from "azure-devops-extension-sdk";
-import { CommonServiceIds, IProjectPageService, getClient } from "azure-devops-extension-api";
-import { BuildRestClient } from "azure-devops-extension-api/Build";
+import { CommonServiceIds, IProjectPageService } from "azure-devops-extension-api";
 import "./scan-results-tab.css";
 
 interface SarifReport {
@@ -28,22 +27,39 @@ interface SarifRule {
     defaultConfiguration?: {
         level: "error" | "warning" | "note" | "none";
     };
-    properties?: Record<string, unknown>;
+    properties?: {
+        severity?: number;
+        customerSeverity?: number;
+        "cve-ids"?: string[];
+        cvss3Info?: {
+            baseScore?: string;
+            temporalScore?: string;
+        };
+        cvssInfo?: {
+            baseScore?: string;
+            temporalScore?: string;
+        };
+        [key: string]: unknown;
+    };
+}
+
+interface VulnerableSoftware {
+    name: string;
+    path: string;
+    installedVersion: string;
+    fixedVersion: string;
+    layerSHA?: string;
 }
 
 interface SarifResult {
     ruleId: string;
+    ruleIndex?: number;
     level: "error" | "warning" | "note" | "none";
     message: { text: string };
     locations?: SarifLocation[];
     properties?: {
-        qid?: number;
-        cves?: string[];
-        severity?: number;
-        cvssScore?: number;
-        packageName?: string;
-        installedVersion?: string;
-        fixedVersion?: string;
+        QID?: number;
+        vulnerableSoftware?: VulnerableSoftware[];
         [key: string]: unknown;
     };
 }
@@ -88,7 +104,6 @@ interface ScanSummary {
 }
 
 class QualysScanResultsTab {
-    private buildClient!: BuildRestClient;
     private projectId!: string;
     private buildId!: number;
     private vulnerabilities: VulnerabilityRow[] = [];
@@ -99,19 +114,26 @@ class QualysScanResultsTab {
     private sortDirection: "asc" | "desc" = "desc";
     private filterSeverity = "all";
     private searchQuery = "";
+    private scanType: "container" | "sca" | "all" = "all";
+    private initialized = false;
 
     async initialize(): Promise<void> {
         try {
             await SDK.init();
             await SDK.ready();
 
-            const config = SDK.getConfiguration();
-            this.buildId = config.buildId || (config.build && config.build.id);
+            // Determine scan type from contribution ID
+            const contributionId = SDK.getContributionId();
+            console.log("Contribution ID:", contributionId);
 
-            if (!this.buildId) {
-                throw new Error("Build ID not available");
+            if (contributionId.includes("container") || contributionId.includes("image")) {
+                this.scanType = "container";
+            } else if (contributionId.includes("sca") || contributionId.includes("code")) {
+                this.scanType = "sca";  // Internal type stays as "sca" for compatibility
             }
+            console.log("Scan type:", this.scanType);
 
+            // Get project info first
             const projectService = await SDK.getService<IProjectPageService>(
                 CommonServiceIds.ProjectPageService
             );
@@ -120,10 +142,35 @@ class QualysScanResultsTab {
                 throw new Error("Project not available");
             }
             this.projectId = project.id;
+            this.initialized = true;
 
-            this.buildClient = getClient(BuildRestClient);
+            const config = SDK.getConfiguration();
+            console.log("SDK Configuration:", JSON.stringify(config, null, 2));
 
-            await this.loadScanResults();
+            // For build result tabs, register contribution and get build via callback
+            SDK.register(SDK.getContributionId(), () => {
+                return {
+                    // Called when build changes/loads
+                    onBuildChanged: (build: { id: number; buildNumber: string }) => {
+                        console.log("Build changed:", build);
+                        if (build && build.id) {
+                            this.buildId = build.id;
+                            this.onBuildAvailable();
+                        }
+                    }
+                };
+            });
+
+            // Also try to get build from the configuration callbacks
+            if (config.onBuildChanged) {
+                config.onBuildChanged((build: { id: number; buildNumber: string }) => {
+                    console.log("Build from config callback:", build);
+                    if (build && build.id && !this.buildId) {
+                        this.buildId = build.id;
+                        this.onBuildAvailable();
+                    }
+                });
+            }
 
             SDK.notifyLoadSucceeded();
         } catch (error) {
@@ -132,20 +179,81 @@ class QualysScanResultsTab {
         }
     }
 
+    private async onBuildAvailable(): Promise<void> {
+        if (!this.buildId || !this.initialized) return;
+
+        console.log("Loading results for build:", this.buildId, "scan type:", this.scanType);
+        try {
+            await this.loadScanResults();
+        } catch (error) {
+            console.error("Error loading scan results:", error);
+            this.showError(error instanceof Error ? error.message : "Failed to load results");
+        }
+    }
+
     private async loadScanResults(): Promise<void> {
         try {
-            // Get build artifacts
-            const artifacts = await this.buildClient.getArtifacts(this.projectId, this.buildId);
+            // Get access token for API calls
+            const accessToken = await SDK.getAccessToken();
+            const hostUrl = SDK.getHost().name;
+            const baseUrl = `https://dev.azure.com/${hostUrl}`;
 
-            // Look for Qualys scan result artifacts
-            const qualysArtifacts = artifacts.filter(
-                a => a.name === "QualysScanResults" ||
-                     a.name === "QualysSCAResults" ||
-                     a.name === "CodeAnalysisLogs"
+            console.log("Fetching artifacts from:", `${baseUrl}/${this.projectId}/_apis/build/builds/${this.buildId}/artifacts`);
+
+            // Get build artifacts using REST API directly
+            const artifactsResponse = await fetch(
+                `${baseUrl}/${this.projectId}/_apis/build/builds/${this.buildId}/artifacts?api-version=7.0`,
+                {
+                    headers: {
+                        "Authorization": `Bearer ${accessToken}`,
+                        "Content-Type": "application/json"
+                    }
+                }
             );
 
+            if (!artifactsResponse.ok) {
+                throw new Error(`Failed to fetch artifacts: ${artifactsResponse.status} ${artifactsResponse.statusText}`);
+            }
+
+            const artifactsData = await artifactsResponse.json();
+            console.log("Artifacts response:", JSON.stringify(artifactsData, null, 2));
+
+            // Log all artifact names
+            const allArtifactNames = (artifactsData.value || []).map((a: { name: string }) => a.name);
+            console.log("All artifact names:", allArtifactNames);
+
+            // Filter artifacts based on scan type - use exact pattern matching
+            // Note: "sca" is a substring of "scan", so we need careful matching
+            let qualysArtifacts = (artifactsData.value || []).filter((a: { name: string }) => {
+                const name = a.name.toLowerCase();
+                // Check for specific patterns using word boundaries
+                const isContainerScan = name.includes("container") || name.includes("image");
+                const isCodeScan = name.includes("-sca-") || name.endsWith("-sca") ||
+                                   name.includes("sca-scan") || name === "qualys-sca-scan" ||
+                                   name.includes("-code-") || name.endsWith("-code") ||
+                                   name.includes("code-scan") || name === "qualys-code-scan";
+
+                if (this.scanType === "container") {
+                    // Match container/image scans only
+                    return name.includes("qualys") && isContainerScan && !isCodeScan;
+                } else if (this.scanType === "sca") {
+                    // Match code/sca scans only
+                    return name.includes("qualys") && isCodeScan && !isContainerScan;
+                } else {
+                    return name.includes("qualys");
+                }
+            });
+
+            console.log("Filtered artifacts for scan type", this.scanType, ":", qualysArtifacts.map((a: { name: string }) => a.name));
+
+            // If no matches, try broader search for any artifact with SARIF
             if (qualysArtifacts.length === 0) {
-                this.showNoResults("No Qualys scan results found for this build.");
+                console.log("No scan-type specific artifacts found, trying all artifacts");
+                qualysArtifacts = artifactsData.value || [];
+            }
+
+            if (qualysArtifacts.length === 0) {
+                this.showNoResults("No artifacts found for this build.");
                 return;
             }
 
@@ -153,42 +261,115 @@ class QualysScanResultsTab {
 
             // Try to download artifact content
             for (const artifact of qualysArtifacts) {
-                if (!artifact.resource?.downloadUrl) continue;
+                console.log("Processing artifact:", JSON.stringify(artifact, null, 2));
+
+                const downloadUrl = artifact.resource?.downloadUrl;
+                const containerData = artifact.resource?.data;
+
+                console.log("Artifact details - name:", artifact.name, "containerData:", containerData, "downloadUrl:", downloadUrl);
+
+                if (!containerData) {
+                    console.log("No container data for artifact:", artifact.name);
+                    continue;
+                }
+
+                // Parse container data format: "#/36383091/QualysSCAResults"
+                // Extract container ID and path
+                const containerMatch = containerData.match(/^#\/(\d+)\/(.+)$/);
+                if (!containerMatch) {
+                    console.log("Unable to parse container data format:", containerData);
+                    continue;
+                }
+
+                const containerId = containerMatch[1];
+                const containerPath = containerMatch[2];
+                console.log("Parsed container ID:", containerId, "path:", containerPath);
 
                 try {
-                    // Fetch the artifact ZIP
-                    const response = await fetch(artifact.resource.downloadUrl, {
+                    // Use the File Container Items API to list files in the container
+                    // Format: /_apis/resources/Containers/{containerId}?itemPath={path}&isShallow=false
+                    // Note: Container API requires -preview suffix
+                    const containerUrl = `${baseUrl}/_apis/resources/Containers/${containerId}?itemPath=${encodeURIComponent(containerPath)}&isShallow=false&%24format=json&api-version=7.0-preview`;
+                    console.log("Container URL:", containerUrl);
+
+                    const containerResponse = await fetch(containerUrl, {
                         headers: {
-                            "Accept": "application/zip"
+                            "Authorization": `Bearer ${accessToken}`,
+                            "Accept": "application/json"
                         }
                     });
 
-                    if (!response.ok) continue;
+                    console.log("Container response status:", containerResponse.status);
 
-                    // For simplicity, try direct JSON fetch (works if artifact is exposed)
-                    // In production, you'd need to handle ZIP extraction
-                    const artifactUrl = artifact.resource.downloadUrl.replace("format=zip", "format=file");
-                    const sarifUrl = `${artifactUrl}&subPath=/${artifact.name}`;
+                    if (containerResponse.ok) {
+                        const containerItems = await containerResponse.json();
+                        console.log("Container items:", JSON.stringify(containerItems, null, 2));
 
-                    const sarifResponse = await fetch(sarifUrl);
-                    if (sarifResponse.ok) {
-                        const text = await sarifResponse.text();
-                        if (text.includes('"$schema"') && text.includes('"runs"')) {
-                            sarifReport = JSON.parse(text);
-                            break;
+                        const items = containerItems.value || [];
+
+                        // List all items
+                        const allItems = items.map((f: { path?: string; itemType?: string }) =>
+                            `${f.path || "unknown"} (${f.itemType || "?"})`
+                        );
+                        console.log("Items in container:", allItems);
+
+                        // Find SARIF file - look for files (itemType=file or folder) with .sarif extension
+                        const sarifFile = items.find((f: { path?: string; itemType?: string }) => {
+                            const itemPath = f.path || "";
+                            return (itemPath.endsWith(".sarif.json") || itemPath.endsWith(".sarif") ||
+                                    itemPath.includes("-Report.sarif")) && f.itemType === "file";
+                        });
+
+                        if (sarifFile) {
+                            console.log("Found SARIF file:", sarifFile.path);
+
+                            // Download the file content
+                            const sarifUrl = `${baseUrl}/_apis/resources/Containers/${containerId}?itemPath=${encodeURIComponent(sarifFile.path)}&api-version=7.0-preview`;
+                            console.log("SARIF download URL:", sarifUrl);
+
+                            const sarifResponse = await fetch(sarifUrl, {
+                                headers: {
+                                    "Authorization": `Bearer ${accessToken}`,
+                                    "Accept": "application/octet-stream"
+                                }
+                            });
+
+                            console.log("SARIF response status:", sarifResponse.status);
+
+                            if (sarifResponse.ok) {
+                                const text = await sarifResponse.text();
+                                console.log("SARIF content preview:", text.substring(0, 500));
+
+                                if (text.includes('"$schema"') || text.includes('"runs"')) {
+                                    sarifReport = JSON.parse(text);
+                                    console.log("SARIF loaded successfully, runs:", sarifReport?.runs?.length);
+                                    break;
+                                } else {
+                                    console.log("Content doesn't look like SARIF");
+                                }
+                            } else {
+                                console.log("Failed to download SARIF:", sarifResponse.statusText);
+                            }
+                        } else {
+                            console.log("No SARIF file found in container items. Looking for any file...");
+                            // Try to find any file if no SARIF pattern match
+                            const anyFile = items.find((f: { itemType?: string }) => f.itemType === "file");
+                            console.log("First file found:", anyFile?.path);
                         }
+                    } else {
+                        const errorText = await containerResponse.text();
+                        console.log("Container API error:", errorText);
                     }
-                } catch {
-                    // Continue to next artifact
+                } catch (err) {
+                    console.error("Error loading artifact:", artifact.name, err);
                     continue;
                 }
             }
 
             if (!sarifReport) {
-                // Show summary from build with download link
-                const artifactNames = qualysArtifacts.map(a => a.name).join(", ");
+                const names = qualysArtifacts.map((a: { name: string }) => a.name).join(", ");
                 this.showNoResults(
-                    `Scan results available in artifacts: ${artifactNames}. Download the artifact to view the full SARIF report.`
+                    `Scan results available in artifacts: ${names}. Unable to load SARIF content automatically.`
                 );
                 return;
             }
@@ -205,8 +386,11 @@ class QualysScanResultsTab {
     private parseSarifReport(report: SarifReport): void {
         const run = report.runs?.[0];
         if (!run) {
+            console.log("No runs found in SARIF report");
             return;
         }
+
+        console.log("Parsing SARIF with", run.results?.length, "results and", run.tool?.driver?.rules?.length, "rules");
 
         const rulesMap = new Map<string, SarifRule>();
         run.tool.driver.rules?.forEach(rule => {
@@ -217,42 +401,58 @@ class QualysScanResultsTab {
             const rule = rulesMap.get(result.ruleId);
             const severity = this.getSeverity(result, rule);
 
+            // Get CVEs from rule properties (cve-ids array)
+            const cves = rule?.properties?.["cve-ids"] || [];
+
+            // Get CVSS score from rule properties
+            let cvssScore: number | undefined;
+            if (rule?.properties?.cvss3Info?.baseScore) {
+                cvssScore = parseFloat(rule.properties.cvss3Info.baseScore);
+            } else if (rule?.properties?.cvssInfo?.baseScore) {
+                cvssScore = parseFloat(rule.properties.cvssInfo.baseScore);
+            }
+
+            // Get package info from vulnerableSoftware array
+            const vulnSoftware = result.properties?.vulnerableSoftware?.[0];
+            const packageName = vulnSoftware?.name || this.extractPackageName(result);
+            const installedVersion = vulnSoftware?.installedVersion || "";
+            const fixedVersion = vulnSoftware?.fixedVersion || "";
+
             return {
                 id: result.ruleId,
                 severity,
                 severityLabel: this.getSeverityLabel(severity),
-                cves: result.properties?.cves || [],
-                qid: result.properties?.qid,
-                cvssScore: result.properties?.cvssScore,
-                packageName: result.properties?.packageName || this.extractPackageName(result),
-                installedVersion: result.properties?.installedVersion || "",
-                fixedVersion: result.properties?.fixedVersion || "",
+                cves,
+                qid: result.properties?.QID,
+                cvssScore,
+                packageName,
+                installedVersion,
+                fixedVersion,
                 description: result.message.text || rule?.shortDescription?.text || "",
                 location: this.extractLocation(result)
             };
         });
 
+        console.log("Parsed", this.vulnerabilities.length, "vulnerabilities");
         this.filteredVulnerabilities = [...this.vulnerabilities];
         this.sortVulnerabilities();
     }
 
     private getSeverity(result: SarifResult, rule?: SarifRule): number {
-        // First check result properties
-        if (result.properties?.severity !== undefined) {
-            return result.properties.severity;
-        }
-
-        // Then check rule properties
+        // Get severity from rule properties (Qualys uses severity or customerSeverity)
         if (rule?.properties?.severity !== undefined) {
-            return rule.properties.severity as number;
+            return rule.properties.severity;
+        }
+        if (rule?.properties?.customerSeverity !== undefined) {
+            return rule.properties.customerSeverity;
         }
 
         // Fall back to SARIF level mapping
         const levelMap: Record<string, number> = {
-            error: 5,
-            warning: 3,
-            note: 2,
-            none: 1
+            error: 4,  // High
+            warning: 3, // Medium
+            note: 2,   // Low
+            none: 1    // Info
         };
         return levelMap[result.level] || levelMap[rule?.defaultConfiguration?.level || "none"];
     }
@@ -347,13 +547,18 @@ class QualysScanResultsTab {
         const statusText = summary.passed ? "Passed" : "Failed";
         const statusIcon = summary.passed ? "\u2713" : "\u2717";
 
+        let title = "Qualys Security Scan Results";
+        if (this.scanType === "container") {
+            title = "Qualys Container Image Scan Results";
+        } else if (this.scanType === "sca") {
+            title = "Qualys Code Scan Results";
+        }
+
         return `
             <div class="results-header">
-                <svg class="qualys-logo" viewBox="0 0 100 100">
-                    <circle cx="50" cy="50" r="45" fill="#ed1c24"/>
-                    <text x="50" y="60" text-anchor="middle" fill="white" font-size="30" font-weight="bold">Q</text>
-                </svg>
-                <h1 class="results-title">Qualys Security Scan Results</h1>
+                <img class="qualys-logo" src="data:image/png;base64,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
+dBz" alt="Qualys Logo" />
+                <h1 class="results-title">${title}</h1>
                 <div class="scan-status ${statusClass}">
                     <span class="status-icon">${statusIcon}</span>
                     <span>${statusText}</span>
@@ -439,7 +644,7 @@ class QualysScanResultsTab {
                             <th data-sort="severity" class="${this.sortColumn === "severity" ? "sorted" : ""}">
                                 Severity <span class="sort-icon">${this.sortDirection === "desc" ? "\u25BC" : "\u25B2"}</span>
                             </th>
-                            <th data-sort="cves">CVE / QID</th>
+                            <th data-sort="qid">QID</th>
                             <th data-sort="cvssScore" class="${this.sortColumn === "cvssScore" ? "sorted" : ""}">
                                 CVSS <span class="sort-icon">${this.sortDirection === "desc" ? "\u25BC" : "\u25B2"}</span>
                             </th>
@@ -461,11 +666,13 @@ class QualysScanResultsTab {
 
     private renderVulnerabilityRow(v: VulnerabilityRow): string {
         const severityClass = v.severityLabel.toLowerCase();
-        const cveDisplay = v.cves.length > 0
-            ? v.cves.map(cve =>
-                `<a href="https://nvd.nist.gov/vuln/detail/${cve}" target="_blank" class="cve-link">${cve}</a>`
-              ).join(", ")
-            : (v.qid ? `QID-${v.qid}` : v.id);
+        const qidDisplay = v.qid
+            ? `<a href="https://qualys.com/qid/${v.qid}" target="_blank" class="qid-link">QID-${v.qid}</a>`
+            : (v.cves.length > 0
+                ? v.cves.map(cve =>
+                    `<a href="https://nvd.nist.gov/vuln/detail/${cve}" target="_blank" class="cve-link">${cve}</a>`
+                  ).join(", ")
+                : v.id);
 
         const cvssDisplay = v.cvssScore !== undefined
             ? `<span class="cvss-score ${this.getCvssClass(v.cvssScore)}">${v.cvssScore.toFixed(1)}</span>`
@@ -474,7 +681,7 @@ class QualysScanResultsTab {
         return `
             <tr class="vuln-row">
                 <td><span class="severity-badge ${severityClass}">${v.severityLabel}</span></td>
-                <td>${cveDisplay}</td>
+                <td>${qidDisplay}</td>
                 <td>${cvssDisplay}</td>
                 <td><span class="package-name">${this.escapeHtml(v.packageName)}</span></td>
                 <td><span class="version-info">${this.escapeHtml(v.installedVersion)}</span></td>
@@ -638,6 +845,10 @@ class QualysScanResultsTab {
                     aVal = a.severity;
                     bVal = b.severity;
                     break;
+                case "qid":
+                    aVal = a.qid ?? 0;
+                    bVal = b.qid ?? 0;
+                    break;
                 case "cvssScore":
                     aVal = a.cvssScore ?? -1;
                     bVal = b.cvssScore ?? -1;
@@ -675,10 +886,7 @@ class QualysScanResultsTab {
             content.style.display = "block";
             content.innerHTML = `
                 <div class="results-header">
-                    <svg class="qualys-logo" viewBox="0 0 100 100">
-                        <circle cx="50" cy="50" r="45" fill="#ed1c24"/>
-                        <text x="50" y="60" text-anchor="middle" fill="white" font-size="30" font-weight="bold">Q</text>
-                    </svg>
+                    <img class="qualys-logo" src="data:image/png;base64,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" alt="Qualys Logo" />
                     <h1 class="results-title">Qualys Security Scan Results</h1>
                 </div>
                 <div class="no-results">
