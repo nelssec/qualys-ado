@@ -88,6 +88,14 @@ interface VulnerabilityRow {
     fixedVersion: string;
     description: string;
     location: string;
+    layerSHA?: string;
+}
+
+interface PackageInfo {
+    name: string;
+    version: string;
+    type: string;
+    layerSHA?: string;
 }
 
 interface ScanSummary {
@@ -108,12 +116,20 @@ class QualysScanResultsTab {
     private buildId!: number;
     private vulnerabilities: VulnerabilityRow[] = [];
     private filteredVulnerabilities: VulnerabilityRow[] = [];
+    private packages: PackageInfo[] = [];
+    private filteredPackages: PackageInfo[] = [];
+    private layers: string[] = [];
     private currentPage = 1;
-    private pageSize = 25;
+    private pageSize: number | "all" = 25;
     private sortColumn = "severity";
     private sortDirection: "asc" | "desc" = "desc";
     private filterSeverity = "all";
+    private filterLayer = "all";
     private searchQuery = "";
+    // Package table state
+    private pkgPageSize: number | "all" = 25;
+    private pkgFilterLayer = "all";
+    private pkgSearchQuery = "";
     private scanType: "container" | "sca" | "all" = "all";
     private initialized = false;
 
@@ -397,7 +413,13 @@ class QualysScanResultsTab {
             rulesMap.set(rule.id, rule);
         });
 
-        this.vulnerabilities = run.results.map(result => {
+        const layerSet = new Set<string>();
+        const seenPackages = new Set<string>();
+        this.packages = [];
+        this.vulnerabilities = [];
+
+        // Process results - create one vulnerability per package (like Jenkins)
+        run.results.forEach(result => {
             const rule = rulesMap.get(result.ruleId);
             const severity = this.getSeverity(result, rule);
 
@@ -413,29 +435,89 @@ class QualysScanResultsTab {
             }
 
             // Get package info from vulnerableSoftware array
-            const vulnSoftware = result.properties?.vulnerableSoftware?.[0];
-            const packageName = vulnSoftware?.name || this.extractPackageName(result);
-            const installedVersion = vulnSoftware?.installedVersion || "";
-            const fixedVersion = vulnSoftware?.fixedVersion || "";
+            const vulnSoftwareList = result.properties?.vulnerableSoftware || [];
 
-            return {
-                id: result.ruleId,
-                severity,
-                severityLabel: this.getSeverityLabel(severity),
-                cves,
-                qid: result.properties?.QID,
-                cvssScore,
-                packageName,
-                installedVersion,
-                fixedVersion,
-                description: result.message.text || rule?.shortDescription?.text || "",
-                location: this.extractLocation(result)
-            };
+            if (vulnSoftwareList.length > 0) {
+                // Create one vulnerability row per affected package
+                vulnSoftwareList.forEach(vulnSoftware => {
+                    const packageName = vulnSoftware.name || this.extractPackageName(result);
+                    const installedVersion = vulnSoftware.installedVersion || "";
+                    const fixedVersion = vulnSoftware.fixedVersion || "";
+                    const layerSHA = vulnSoftware.layerSHA;
+
+                    // Track layers
+                    if (layerSHA) {
+                        layerSet.add(layerSHA);
+                    }
+
+                    // Track packages for software inventory
+                    const pkgKey = `${packageName}:${installedVersion}`;
+                    if (!seenPackages.has(pkgKey) && packageName) {
+                        seenPackages.add(pkgKey);
+                        this.packages.push({
+                            name: packageName,
+                            version: installedVersion,
+                            type: this.detectPackageType(vulnSoftware.path || packageName),
+                            layerSHA
+                        });
+                    }
+
+                    this.vulnerabilities.push({
+                        id: result.ruleId,
+                        severity,
+                        severityLabel: this.getSeverityLabel(severity),
+                        cves,
+                        qid: result.properties?.QID,
+                        cvssScore,
+                        packageName,
+                        installedVersion,
+                        fixedVersion,
+                        description: result.message.text || rule?.shortDescription?.text || "",
+                        location: this.extractLocation(result),
+                        layerSHA
+                    });
+                });
+            } else {
+                // No vulnerableSoftware - create single vulnerability row
+                const packageName = this.extractPackageName(result);
+                this.vulnerabilities.push({
+                    id: result.ruleId,
+                    severity,
+                    severityLabel: this.getSeverityLabel(severity),
+                    cves,
+                    qid: result.properties?.QID,
+                    cvssScore,
+                    packageName,
+                    installedVersion: "",
+                    fixedVersion: "",
+                    description: result.message.text || rule?.shortDescription?.text || "",
+                    location: this.extractLocation(result)
+                });
+            }
         });
 
-        console.log("Parsed", this.vulnerabilities.length, "vulnerabilities");
+        // Store unique layers sorted
+        this.layers = Array.from(layerSet).sort();
+
+        console.log("Parsed", this.vulnerabilities.length, "vulnerabilities,", this.packages.length, "packages,", this.layers.length, "layers");
         this.filteredVulnerabilities = [...this.vulnerabilities];
+        this.filteredPackages = [...this.packages];
         this.sortVulnerabilities();
+    }
+
+    private detectPackageType(pathOrName: string): string {
+        const lower = pathOrName.toLowerCase();
+        if (lower.includes("node_modules") || lower.endsWith(".js") || lower.includes("npm")) return "npm";
+        if (lower.endsWith(".jar") || lower.includes("maven") || lower.includes("gradle")) return "maven";
+        if (lower.endsWith(".whl") || lower.includes("pip") || lower.includes("python")) return "pip";
+        if (lower.includes("apt") || lower.endsWith(".deb")) return "deb";
+        if (lower.includes("rpm") || lower.includes("yum")) return "rpm";
+        if (lower.includes("apk")) return "apk";
+        if (lower.includes("gem") || lower.endsWith(".gem")) return "gem";
+        if (lower.includes("nuget") || lower.endsWith(".nupkg")) return "nuget";
+        if (lower.includes("cargo") || lower.endsWith(".crate")) return "cargo";
+        if (lower.includes("go") || lower.includes("golang")) return "go";
+        return "unknown";
     }
 
     private getSeverity(result: SarifResult, rule?: SarifRule): number {
@@ -536,6 +618,7 @@ class QualysScanResultsTab {
             ${this.renderHeader(summary)}
             ${this.renderSummaryCards(summary)}
             ${this.renderVulnerabilityTable()}
+            ${this.renderPackagesTable()}
             ${this.renderScanInfo()}
         `;
 
@@ -601,7 +684,7 @@ dBz" alt="Qualys Logo" />
     }
 
     private renderVulnerabilityTable(): string {
-        if (this.filteredVulnerabilities.length === 0) {
+        if (this.vulnerabilities.length === 0) {
             return `
                 <div class="vulnerabilities-section">
                     <div class="no-results">
@@ -612,21 +695,29 @@ dBz" alt="Qualys Logo" />
             `;
         }
 
-        const startIdx = (this.currentPage - 1) * this.pageSize;
-        const endIdx = Math.min(startIdx + this.pageSize, this.filteredVulnerabilities.length);
+        const effectivePageSize = this.pageSize === "all" ? this.filteredVulnerabilities.length : this.pageSize;
+        const startIdx = (this.currentPage - 1) * effectivePageSize;
+        const endIdx = Math.min(startIdx + effectivePageSize, this.filteredVulnerabilities.length);
         const pageVulns = this.filteredVulnerabilities.slice(startIdx, endIdx);
 
         const rows = pageVulns.map(v => this.renderVulnerabilityRow(v)).join("");
 
+        const layerOptions = this.layers.length > 0
+            ? this.layers.map(layer => {
+                const shortLayer = layer.startsWith("sha256:") ? layer.substring(7, 19) : layer.substring(0, 12);
+                return `<option value="${this.escapeHtml(layer)}" ${this.filterLayer === layer ? "selected" : ""}>${shortLayer}</option>`;
+              }).join("")
+            : "";
+
         return `
             <div class="vulnerabilities-section">
                 <div class="section-header">
-                    <h2 class="section-title">Vulnerabilities</h2>
+                    <h2 class="section-title">Vulnerabilities (<span id="vuln-count">${this.filteredVulnerabilities.length}</span>)</h2>
                     <div class="filter-controls">
                         <input type="text"
                                class="search-input"
                                id="search-input"
-                               placeholder="Search CVE, package..."
+                               placeholder="Search CVE, package, QID..."
                                value="${this.escapeHtml(this.searchQuery)}">
                         <select class="filter-select" id="severity-filter">
                             <option value="all" ${this.filterSeverity === "all" ? "selected" : ""}>All Severities</option>
@@ -636,9 +727,23 @@ dBz" alt="Qualys Logo" />
                             <option value="2" ${this.filterSeverity === "2" ? "selected" : ""}>Low</option>
                             <option value="1" ${this.filterSeverity === "1" ? "selected" : ""}>Info</option>
                         </select>
+                        ${this.layers.length > 0 ? `
+                        <select class="filter-select" id="layer-filter">
+                            <option value="all" ${this.filterLayer === "all" ? "selected" : ""}>All Layers</option>
+                            ${layerOptions}
+                        </select>
+                        ` : ""}
+                        <select class="filter-select" id="page-size-select">
+                            <option value="25" ${this.pageSize === 25 ? "selected" : ""}>Show 25</option>
+                            <option value="50" ${this.pageSize === 50 ? "selected" : ""}>Show 50</option>
+                            <option value="all" ${this.pageSize === "all" ? "selected" : ""}>Show All</option>
+                        </select>
                     </div>
                 </div>
-                <table class="vuln-table">
+                <div id="vuln-no-results" class="no-results" style="display: ${this.filteredVulnerabilities.length === 0 ? "block" : "none"};">
+                    <p>No vulnerabilities match your search criteria.</p>
+                </div>
+                <table class="vuln-table" style="display: ${this.filteredVulnerabilities.length === 0 ? "none" : "table"};">
                     <thead>
                         <tr>
                             <th data-sort="severity" class="${this.sortColumn === "severity" ? "sorted" : ""}">
@@ -654,6 +759,7 @@ dBz" alt="Qualys Logo" />
                             </th>
                             <th>Version</th>
                             <th>Fixed In</th>
+                            ${this.layers.length > 0 ? "<th>Layer</th>" : ""}
                         </tr>
                     </thead>
                     <tbody>
@@ -678,6 +784,12 @@ dBz" alt="Qualys Logo" />
             ? `<span class="cvss-score ${this.getCvssClass(v.cvssScore)}">${v.cvssScore.toFixed(1)}</span>`
             : "-";
 
+        const layerDisplay = this.layers.length > 0
+            ? (v.layerSHA
+                ? `<span class="layer-badge" title="${this.escapeHtml(v.layerSHA)}">${this.getShortLayer(v.layerSHA)}</span>`
+                : "-")
+            : "";
+
         return `
             <tr class="vuln-row">
                 <td><span class="severity-badge ${severityClass}">${v.severityLabel}</span></td>
@@ -687,8 +799,16 @@ dBz" alt="Qualys Logo" />
                 <td><span class="package-name">${this.escapeHtml(v.packageName)}</span></td>
                 <td><span class="version-info">${this.escapeHtml(v.installedVersion)}</span></td>
                 <td>${v.fixedVersion ? `<span class="fixed-version">${this.escapeHtml(v.fixedVersion)}</span>` : "-"}</td>
+                ${this.layers.length > 0 ? `<td>${layerDisplay}</td>` : ""}
             </tr>
         `;
+    }
+
+    private getShortLayer(layerSHA: string): string {
+        if (layerSHA.startsWith("sha256:")) {
+            return layerSHA.substring(7, 19);
+        }
+        return layerSHA.substring(0, 12);
     }
 
     private getCvssClass(score: number): string {
@@ -699,8 +819,26 @@ dBz" alt="Qualys Logo" />
     }
 
     private renderPagination(): string {
+        if (this.pageSize === "all") {
+            return `
+                <div class="pagination">
+                    <div class="pagination-info">
+                        Showing all ${this.filteredVulnerabilities.length} vulnerabilities
+                    </div>
+                </div>
+            `;
+        }
+
         const totalPages = Math.ceil(this.filteredVulnerabilities.length / this.pageSize);
-        if (totalPages <= 1) return "";
+        if (totalPages <= 1) {
+            return `
+                <div class="pagination">
+                    <div class="pagination-info">
+                        Showing ${this.filteredVulnerabilities.length} of ${this.filteredVulnerabilities.length} vulnerabilities
+                    </div>
+                </div>
+            `;
+        }
 
         const startIdx = (this.currentPage - 1) * this.pageSize + 1;
         const endIdx = Math.min(this.currentPage * this.pageSize, this.filteredVulnerabilities.length);
@@ -720,6 +858,88 @@ dBz" alt="Qualys Logo" />
                     <button class="pagination-btn" id="next-page" ${this.currentPage === totalPages ? "disabled" : ""}>
                         Next
                     </button>
+                </div>
+            </div>
+        `;
+    }
+
+    private renderPackagesTable(): string {
+        if (this.packages.length === 0) {
+            return "";
+        }
+
+        const effectivePageSize = this.pkgPageSize === "all" ? this.filteredPackages.length : this.pkgPageSize;
+        const displayedPackages = this.filteredPackages.slice(0, effectivePageSize);
+
+        const layerOptions = this.layers.length > 0
+            ? this.layers.map(layer => {
+                const shortLayer = layer.startsWith("sha256:") ? layer.substring(7, 19) : layer.substring(0, 12);
+                return `<option value="${this.escapeHtml(layer)}" ${this.pkgFilterLayer === layer ? "selected" : ""}>${shortLayer}</option>`;
+              }).join("")
+            : "";
+
+        const rows = displayedPackages.map(pkg => {
+            const layerDisplay = this.layers.length > 0
+                ? (pkg.layerSHA
+                    ? `<span class="layer-badge" title="${this.escapeHtml(pkg.layerSHA)}">${this.getShortLayer(pkg.layerSHA)}</span>`
+                    : "-")
+                : "";
+            return `
+                <tr>
+                    <td><span class="package-name">${this.escapeHtml(pkg.name)}</span></td>
+                    <td><span class="version-info">${this.escapeHtml(pkg.version || "-")}</span></td>
+                    <td>${this.escapeHtml(pkg.type || "-")}</td>
+                    ${this.layers.length > 0 ? `<td>${layerDisplay}</td>` : ""}
+                </tr>
+            `;
+        }).join("");
+
+        const showingCount = displayedPackages.length;
+        const totalCount = this.filteredPackages.length;
+
+        return `
+            <div class="packages-section">
+                <div class="section-header">
+                    <h2 class="section-title">Software Inventory (<span id="pkg-count">${this.filteredPackages.length}</span>)</h2>
+                    <div class="filter-controls">
+                        <input type="text"
+                               class="search-input"
+                               id="pkg-search-input"
+                               placeholder="Search package name..."
+                               value="${this.escapeHtml(this.pkgSearchQuery)}">
+                        ${this.layers.length > 0 ? `
+                        <select class="filter-select" id="pkg-layer-filter">
+                            <option value="all" ${this.pkgFilterLayer === "all" ? "selected" : ""}>All Layers</option>
+                            ${layerOptions}
+                        </select>
+                        ` : ""}
+                        <select class="filter-select" id="pkg-page-size-select">
+                            <option value="25" ${this.pkgPageSize === 25 ? "selected" : ""}>Show 25</option>
+                            <option value="50" ${this.pkgPageSize === 50 ? "selected" : ""}>Show 50</option>
+                            <option value="all" ${this.pkgPageSize === "all" ? "selected" : ""}>Show All</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="pkg-no-results" class="no-results" style="display: ${this.filteredPackages.length === 0 ? "block" : "none"};">
+                    <p>No packages match your search criteria.</p>
+                </div>
+                <table class="vuln-table pkg-table" style="display: ${this.filteredPackages.length === 0 ? "none" : "table"};">
+                    <thead>
+                        <tr>
+                            <th>Package Name</th>
+                            <th>Version</th>
+                            <th>Type</th>
+                            ${this.layers.length > 0 ? "<th>Layer</th>" : ""}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows}
+                    </tbody>
+                </table>
+                <div class="pagination">
+                    <div class="pagination-info">
+                        Showing ${showingCount} of ${totalCount} packages
+                    </div>
                 </div>
             </div>
         `;
@@ -750,7 +970,27 @@ dBz" alt="Qualys Logo" />
             });
         }
 
-        // Search input
+        // Layer filter (vulnerability table)
+        const layerFilter = document.getElementById("layer-filter") as HTMLSelectElement;
+        if (layerFilter) {
+            layerFilter.addEventListener("change", (e) => {
+                this.filterLayer = (e.target as HTMLSelectElement).value;
+                this.applyFilters();
+            });
+        }
+
+        // Page size selector (vulnerability table)
+        const pageSizeSelect = document.getElementById("page-size-select") as HTMLSelectElement;
+        if (pageSizeSelect) {
+            pageSizeSelect.addEventListener("change", (e) => {
+                const value = (e.target as HTMLSelectElement).value;
+                this.pageSize = value === "all" ? "all" : parseInt(value);
+                this.currentPage = 1;
+                this.renderResults();
+            });
+        }
+
+        // Search input (vulnerability table)
         const searchInput = document.getElementById("search-input") as HTMLInputElement;
         if (searchInput) {
             let debounceTimer: ReturnType<typeof setTimeout>;
@@ -760,6 +1000,38 @@ dBz" alt="Qualys Logo" />
                     this.searchQuery = (e.target as HTMLInputElement).value;
                     this.applyFilters();
                 }, 300);
+            });
+        }
+
+        // Package search input
+        const pkgSearchInput = document.getElementById("pkg-search-input") as HTMLInputElement;
+        if (pkgSearchInput) {
+            let debounceTimer: ReturnType<typeof setTimeout>;
+            pkgSearchInput.addEventListener("input", (e) => {
+                clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(() => {
+                    this.pkgSearchQuery = (e.target as HTMLInputElement).value;
+                    this.applyPackageFilters();
+                }, 300);
+            });
+        }
+
+        // Package layer filter
+        const pkgLayerFilter = document.getElementById("pkg-layer-filter") as HTMLSelectElement;
+        if (pkgLayerFilter) {
+            pkgLayerFilter.addEventListener("change", (e) => {
+                this.pkgFilterLayer = (e.target as HTMLSelectElement).value;
+                this.applyPackageFilters();
+            });
+        }
+
+        // Package page size selector
+        const pkgPageSizeSelect = document.getElementById("pkg-page-size-select") as HTMLSelectElement;
+        if (pkgPageSizeSelect) {
+            pkgPageSizeSelect.addEventListener("change", (e) => {
+                const value = (e.target as HTMLSelectElement).value;
+                this.pkgPageSize = value === "all" ? "all" : parseInt(value);
+                this.renderResults();
             });
         }
 
@@ -796,10 +1068,12 @@ dBz" alt="Qualys Logo" />
 
         if (nextBtn) {
             nextBtn.addEventListener("click", () => {
-                const totalPages = Math.ceil(this.filteredVulnerabilities.length / this.pageSize);
-                if (this.currentPage < totalPages) {
-                    this.currentPage++;
-                    this.renderResults();
+                if (this.pageSize !== "all") {
+                    const totalPages = Math.ceil(this.filteredVulnerabilities.length / this.pageSize);
+                    if (this.currentPage < totalPages) {
+                        this.currentPage++;
+                        this.renderResults();
+                    }
                 }
             });
         }
@@ -809,6 +1083,11 @@ dBz" alt="Qualys Logo" />
         this.filteredVulnerabilities = this.vulnerabilities.filter(v => {
             // Severity filter
             if (this.filterSeverity !== "all" && v.severity !== parseInt(this.filterSeverity)) {
+                return false;
+            }
+
+            // Layer filter
+            if (this.filterLayer !== "all" && v.layerSHA !== this.filterLayer) {
                 return false;
             }
 
@@ -833,6 +1112,33 @@ dBz" alt="Qualys Logo" />
 
         this.currentPage = 1;
         this.sortVulnerabilities();
+        this.renderResults();
+    }
+
+    private applyPackageFilters(): void {
+        this.filteredPackages = this.packages.filter(pkg => {
+            // Layer filter
+            if (this.pkgFilterLayer !== "all" && pkg.layerSHA !== this.pkgFilterLayer) {
+                return false;
+            }
+
+            // Search filter
+            if (this.pkgSearchQuery) {
+                const query = this.pkgSearchQuery.toLowerCase();
+                const searchFields = [
+                    pkg.name,
+                    pkg.version || "",
+                    pkg.type || ""
+                ].join(" ").toLowerCase();
+
+                if (!searchFields.includes(query)) {
+                    return false;
+                }
+            }
+
+            return true;
+        });
+
         this.renderResults();
     }
 
