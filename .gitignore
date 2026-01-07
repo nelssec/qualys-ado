@@ -8,6 +8,7 @@ dist/
 *.d.ts
 !jest.config.js
 !.eslintrc.js
+!webpack.config.js
 
 # Package output
 *.vsix
