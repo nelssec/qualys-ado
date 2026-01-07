@@ -20,7 +20,7 @@
     "lint:fix": "eslint 'src/**/*.ts' --fix",
     "format": "prettier --write 'src/**/*.ts'",
     "format:check": "prettier --check 'src/**/*.ts'",
-    "package": "npm run clean && npm run compile && npm run install:tasks && tfx extension create --manifest-globs vss-extension.json",
+    "package": "npm run clean && npm run install:tasks && npm run compile && tfx extension create --manifest-globs vss-extension.json",
     "package:dev": "npm run package -- --override '{\"public\": false}'",
     "publish:dev": "tfx extension publish --manifest-globs vss-extension.json --share-with your-org",
     "publish:prod": "tfx extension publish --manifest-globs vss-extension.json"
