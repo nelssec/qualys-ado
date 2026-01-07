@@ -48,12 +48,12 @@ Integrate Qualys vulnerability scanning into your Azure Pipelines using the QSca
 
 ## Tasks
 
-### QualysContainerScan@2
+### QualysContainerScan@1
 
 Scans Docker container images for vulnerabilities.
 
 ```yaml
-- task: QualysContainerScan@2
+- task: QualysContainerScan@1
   inputs:
     # Required
     qualysConnection: 'QualysConnection'
@@ -100,12 +100,12 @@ Scans Docker container images for vulnerabilities.
 | `reportPath` | Path to SARIF report |
 | `workItemsCreated` | Number of work items created |
 
-### QualysCodeScan@2
+### QualysCodeScan@1
 
 Scans code dependencies for vulnerabilities (Software Composition Analysis).
 
 ```yaml
-- task: QualysCodeScan@2
+- task: QualysCodeScan@1
   inputs:
     # Required
     qualysConnection: 'QualysConnection'
@@ -176,7 +176,7 @@ steps:
       tags: |
         $(Build.BuildId)
 
-  - task: QualysContainerScan@2
+  - task: QualysContainerScan@1
     displayName: 'Qualys Security Scan'
     inputs:
       qualysConnection: 'QualysConnection'
@@ -204,7 +204,7 @@ stages:
               command: build
               tags: $(Build.BuildId)
 
-          - task: QualysContainerScan@2
+          - task: QualysContainerScan@1
             displayName: 'Container Security Scan'
             inputs:
               qualysConnection: 'QualysConnection'
@@ -214,7 +214,7 @@ stages:
               scanSecrets: true
               publishResults: true
 
-          - task: QualysCodeScan@2
+          - task: QualysCodeScan@1
             displayName: 'Code Scan'
             inputs:
               qualysConnection: 'QualysConnection'
@@ -235,7 +235,7 @@ stages:
 ### Using Output Variables
 
 ```yaml
-- task: QualysContainerScan@2
+- task: QualysContainerScan@1
   name: qualysScan
   inputs:
     qualysConnection: 'QualysConnection'
@@ -260,7 +260,7 @@ pool:
   vmImage: 'ubuntu-latest'
 
 steps:
-  - task: QualysContainerScan@2
+  - task: QualysContainerScan@1
     displayName: 'Scan and Create Work Items'
     inputs:
       qualysConnection: 'QualysConnection'

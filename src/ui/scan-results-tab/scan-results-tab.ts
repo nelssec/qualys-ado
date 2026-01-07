@@ -213,6 +213,182 @@ class QualysScanResultsTab {
             const hostUrl = SDK.getHost().name;
             const baseUrl = `https://dev.azure.com/${hostUrl}`;
 
+            // Determine which attachment type to look for based on scan type
+            const attachmentType = this.scanType === "container" ? "qualys.container.sarif" :
+                                   this.scanType === "sca" ? "qualys.code.sarif" : "qualys.scan.sarif";
+
+            console.log("Looking for attachments of type:", attachmentType);
+
+            // First try to get attachments (new method)
+            let sarifReport: SarifReport | null = null;
+            sarifReport = await this.tryLoadFromAttachments(baseUrl, accessToken, attachmentType);
+
+            // If no attachment found, try legacy artifact method
+            if (!sarifReport) {
+                console.log("No attachments found, trying artifacts...");
+                sarifReport = await this.tryLoadFromArtifacts(baseUrl, accessToken);
+            }
+
+            if (!sarifReport) {
+                const scanTypeLabel = this.scanType === "container" ? "Container Image Scan" :
+                                      this.scanType === "sca" ? "Code Scan" : "Qualys Scan";
+                this.showNoResults(`No ${scanTypeLabel} results found for this build. The scan may still be in progress.`);
+                return;
+            }
+
+            // Parse and display results
+            this.parseSarifReport(sarifReport);
+            this.renderResults();
+
+        } catch (error) {
+            console.error("Error in loadScanResults:", error);
+            throw error;
+        }
+    }
+
+    private async tryLoadFromAttachments(baseUrl: string, accessToken: string, attachmentType: string): Promise<SarifReport | null> {
+        try {
+            // Use the simple build attachments API
+            const attachmentsUrl = `${baseUrl}/${this.projectId}/_apis/build/builds/${this.buildId}/attachments/${encodeURIComponent(attachmentType)}?api-version=7.0`;
+            console.log("Fetching attachments from:", attachmentsUrl);
+
+            const attachmentsResponse = await fetch(attachmentsUrl, {
+                headers: {
+                    "Authorization": `Bearer ${accessToken}`,
+                    "Content-Type": "application/json"
+                }
+            });
+
+            console.log("Attachments response status:", attachmentsResponse.status);
+
+            if (!attachmentsResponse.ok) {
+                console.log("Failed to fetch attachments:", attachmentsResponse.status);
+                // Try the timeline-based approach as fallback
+                return await this.tryLoadFromTimelineAttachments(baseUrl, accessToken, attachmentType);
+            }
+
+            const attachmentsData = await attachmentsResponse.json();
+            console.log("Attachments data:", JSON.stringify(attachmentsData, null, 2));
+            const attachments = attachmentsData.value || [];
+
+            if (attachments.length === 0) {
+                console.log("No attachments found, trying timeline approach...");
+                return await this.tryLoadFromTimelineAttachments(baseUrl, accessToken, attachmentType);
+            }
+
+            console.log("Found attachments:", attachments.map((a: {name: string}) => a.name));
+
+            // Download the first SARIF attachment
+            for (const attachment of attachments) {
+                if (attachment.name.endsWith('.sarif.json') || attachment.name.endsWith('.sarif')) {
+                    // The attachment object should have a _links.self.href for download
+                    const downloadUrl = attachment._links?.self?.href ||
+                        `${baseUrl}/${this.projectId}/_apis/build/builds/${this.buildId}/attachments/${encodeURIComponent(attachmentType)}/${encodeURIComponent(attachment.name)}?api-version=7.0`;
+
+                    console.log("Downloading from:", downloadUrl);
+
+                    const contentResponse = await fetch(downloadUrl, {
+                        headers: {
+                            "Authorization": `Bearer ${accessToken}`
+                        }
+                    });
+
+                    if (contentResponse.ok) {
+                        const sarifContent = await contentResponse.text();
+                        console.log("Successfully loaded SARIF from attachment, length:", sarifContent.length);
+                        return JSON.parse(sarifContent) as SarifReport;
+                    } else {
+                        console.log("Failed to download attachment:", contentResponse.status);
+                    }
+                }
+            }
+
+            return null;
+        } catch (error) {
+            console.log("Error loading from attachments:", error);
+            return null;
+        }
+    }
+
+    private async tryLoadFromTimelineAttachments(baseUrl: string, accessToken: string, attachmentType: string): Promise<SarifReport | null> {
+        try {
+            // Get timeline to find task records with attachments
+            const timelineUrl = `${baseUrl}/${this.projectId}/_apis/build/builds/${this.buildId}/timeline?api-version=7.0`;
+            console.log("Fetching timeline from:", timelineUrl);
+
+            const timelineResponse = await fetch(timelineUrl, {
+                headers: {
+                    "Authorization": `Bearer ${accessToken}`,
+                    "Content-Type": "application/json"
+                }
+            });
+
+            if (!timelineResponse.ok) {
+                console.log("Failed to fetch timeline:", timelineResponse.status);
+                return null;
+            }
+
+            const timelineData = await timelineResponse.json();
+            const records = timelineData.records || [];
+
+            // Find task records that might have our attachment
+            for (const record of records) {
+                if (record.type !== "Task") continue;
+
+                const recordId = record.id;
+                const recordAttachmentsUrl = `${baseUrl}/${this.projectId}/_apis/build/builds/${this.buildId}/timeline/${timelineData.id}/records/${recordId}/attachments?type=${encodeURIComponent(attachmentType)}&api-version=7.0`;
+
+                try {
+                    const attachmentsResponse = await fetch(recordAttachmentsUrl, {
+                        headers: {
+                            "Authorization": `Bearer ${accessToken}`,
+                            "Content-Type": "application/json"
+                        }
+                    });
+
+                    if (!attachmentsResponse.ok) continue;
+
+                    const attachmentsData = await attachmentsResponse.json();
+                    const attachments = attachmentsData.value || [];
+
+                    if (attachments.length > 0) {
+                        console.log("Found timeline attachments:", attachments.map((a: {name: string}) => a.name));
+
+                        // Download the first SARIF attachment
+                        for (const attachment of attachments) {
+                            if (attachment.name.endsWith('.sarif.json') || attachment.name.endsWith('.sarif')) {
+                                const downloadUrl = `${baseUrl}/${this.projectId}/_apis/build/builds/${this.buildId}/timeline/${timelineData.id}/records/${recordId}/attachments/${encodeURIComponent(attachment.name)}?type=${encodeURIComponent(attachmentType)}&api-version=7.0`;
+
+                                const contentResponse = await fetch(downloadUrl, {
+                                    headers: {
+                                        "Authorization": `Bearer ${accessToken}`
+                                    }
+                                });
+
+                                if (contentResponse.ok) {
+                                    const sarifContent = await contentResponse.text();
+                                    console.log("Successfully loaded SARIF from timeline attachment");
+                                    return JSON.parse(sarifContent) as SarifReport;
+                                }
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.log("Error fetching attachments for record:", recordId, e);
+                }
+            }
+
+            return null;
+        } catch (error) {
+            console.log("Error loading from timeline attachments:", error);
+            return null;
+        }
+    }
+
+    private async tryLoadFromArtifacts(baseUrl: string, accessToken: string): Promise<SarifReport | null> {
+        let sarifReport: SarifReport | null = null;
+
+        try {
             console.log("Fetching artifacts from:", `${baseUrl}/${this.projectId}/_apis/build/builds/${this.buildId}/artifacts`);
 
             // Get build artifacts using REST API directly
@@ -227,7 +403,8 @@ class QualysScanResultsTab {
             );
 
             if (!artifactsResponse.ok) {
-                throw new Error(`Failed to fetch artifacts: ${artifactsResponse.status} ${artifactsResponse.statusText}`);
+                console.log("Failed to fetch artifacts:", artifactsResponse.status);
+                return null;
             }
 
             const artifactsData = await artifactsResponse.json();
@@ -238,10 +415,8 @@ class QualysScanResultsTab {
             console.log("All artifact names:", allArtifactNames);
 
             // Filter artifacts based on scan type - use exact pattern matching
-            // Note: "sca" is a substring of "scan", so we need careful matching
             let qualysArtifacts = (artifactsData.value || []).filter((a: { name: string }) => {
                 const name = a.name.toLowerCase();
-                // Check for specific patterns using word boundaries
                 const isContainerScan = name.includes("container") || name.includes("image");
                 const isCodeScan = name.includes("-sca-") || name.endsWith("-sca") ||
                                    name.includes("sca-scan") || name === "qualys-sca-scan" ||
@@ -249,10 +424,8 @@ class QualysScanResultsTab {
                                    name.includes("code-scan") || name === "qualys-code-scan";
 
                 if (this.scanType === "container") {
-                    // Match container/image scans only
                     return name.includes("qualys") && isContainerScan && !isCodeScan;
                 } else if (this.scanType === "sca") {
-                    // Match code/sca scans only
                     return name.includes("qualys") && isCodeScan && !isContainerScan;
                 } else {
                     return name.includes("qualys");
@@ -261,27 +434,19 @@ class QualysScanResultsTab {
 
             console.log("Filtered artifacts for scan type", this.scanType, ":", qualysArtifacts.map((a: { name: string }) => a.name));
 
-            // If no matches, try broader search for any artifact with SARIF
-            if (qualysArtifacts.length === 0) {
-                console.log("No scan-type specific artifacts found, trying all artifacts");
+            if (qualysArtifacts.length === 0 && this.scanType === "all") {
                 qualysArtifacts = artifactsData.value || [];
             }
 
             if (qualysArtifacts.length === 0) {
-                this.showNoResults("No artifacts found for this build.");
-                return;
+                return null;
             }
-
-            let sarifReport: SarifReport | null = null;
 
             // Try to download artifact content
             for (const artifact of qualysArtifacts) {
                 console.log("Processing artifact:", JSON.stringify(artifact, null, 2));
 
-                const downloadUrl = artifact.resource?.downloadUrl;
                 const containerData = artifact.resource?.data;
-
-                console.log("Artifact details - name:", artifact.name, "containerData:", containerData, "downloadUrl:", downloadUrl);
 
                 if (!containerData) {
                     console.log("No container data for artifact:", artifact.name);
@@ -289,7 +454,6 @@ class QualysScanResultsTab {
                 }
 
                 // Parse container data format: "#/36383091/QualysSCAResults"
-                // Extract container ID and path
                 const containerMatch = containerData.match(/^#\/(\d+)\/(.+)$/);
                 if (!containerMatch) {
                     console.log("Unable to parse container data format:", containerData);
@@ -381,20 +545,11 @@ class QualysScanResultsTab {
                 }
             }
 
-            if (!sarifReport) {
-                const names = qualysArtifacts.map((a: { name: string }) => a.name).join(", ");
-                this.showNoResults(
-                    `Scan results available in artifacts: ${names}. Unable to load SARIF content automatically.`
-                );
-                return;
-            }
-
-            this.parseSarifReport(sarifReport);
-            this.renderResults();
+            return sarifReport;
 
         } catch (error) {
-            console.error("Error loading scan results:", error);
-            this.showError("Failed to load scan results: " + (error instanceof Error ? error.message : "Unknown error"));
+            console.error("Error loading from artifacts:", error);
+            return null;
         }
     }
 
@@ -1169,13 +1324,21 @@ dBz" alt="Qualys Logo" />
         const loading = document.getElementById("loading");
         const content = document.getElementById("content");
 
+        // Determine title based on scan type
+        let title = "Qualys Security Scan Results";
+        if (this.scanType === "container") {
+            title = "Qualys Container Image Scan Results";
+        } else if (this.scanType === "sca") {
+            title = "Qualys Code Scan Results";
+        }
+
         if (loading) loading.style.display = "none";
         if (content) {
             content.style.display = "block";
             content.innerHTML = `
                 <div class="results-header">
                     <img class="qualys-logo" src="data:image/png;base64,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" alt="Qualys Logo" />
-                    <h1 class="results-title">Qualys Security Scan Results</h1>
+                    <h1 class="results-title">${title}</h1>
                 </div>
                 <div class="no-results">
                     <div class="no-results-icon">\u2139</div>

@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "qualys-security-scanner",
   "name": "Qualys Security Scanner",
-  "version": "1.0.2",
+  "version": "1.0.0",
   "publisher": "qualys-ext",
   "public": false,
   "targets": [

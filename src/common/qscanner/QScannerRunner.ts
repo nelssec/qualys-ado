@@ -192,11 +192,9 @@ export class QScannerRunner {
 
     if (report.runs && report.runs.length > 0) {
       for (const run of report.runs) {
-        // Build a map of rule severities from the rules array
         const ruleSeverityMap = new Map<string, number>();
         if (run.tool?.driver?.rules) {
           for (const rule of run.tool.driver.rules) {
-            // QScanner stores severity in rule properties
             const ruleSeverity = rule.properties?.severity as number | undefined;
             if (rule.id && ruleSeverity !== undefined) {
               ruleSeverityMap.set(rule.id, ruleSeverity);
@@ -207,11 +205,6 @@ export class QScannerRunner {
         if (run.results) {
           for (const result of run.results) {
             summary.total++;
-
-            // Try multiple locations for severity:
-            // 1. result.properties.severity (direct on result)
-            // 2. Look up from rule by ruleId
-            // 3. Map from result.level (SARIF standard)
             let severity: number | undefined = result.properties?.severity as number | undefined;
 
             if (severity === undefined && result.ruleId) {
@@ -219,19 +212,18 @@ export class QScannerRunner {
             }
 
             if (severity === undefined && result.level) {
-              // Map SARIF level to Qualys severity
               switch (result.level) {
                 case 'error':
-                  severity = 5; // Critical
+                  severity = 5;
                   break;
                 case 'warning':
-                  severity = 3; // Medium
+                  severity = 3;
                   break;
                 case 'note':
-                  severity = 2; // Low
+                  severity = 2;
                   break;
                 default:
-                  severity = 1; // Informational
+                  severity = 1;
               }
             }
 
@@ -263,18 +255,15 @@ export class QScannerRunner {
   }
 
   cleanup(): void {
-    // Clean up temporary files if they exist
     if (this.workDir && fs.existsSync(this.workDir)) {
       try {
         const files = fs.readdirSync(this.workDir);
         for (const file of files) {
-          // Only clean up output files, not the binary (it may be reused)
           if (file.endsWith('.json') || file.endsWith('.sarif')) {
             fs.unlinkSync(path.join(this.workDir, file));
           }
         }
       } catch {
-        // Ignore cleanup errors
       }
     }
   }
@@ -338,7 +327,6 @@ export class QScannerRunner {
       args.push('--output-dir', resultOutputDir);
     }
 
-    // Token is passed via environment variable, not CLI args, so safe to log
     console.log(`Executing: ${this.binaryPath} ${args.join(' ')}`);
 
     return new Promise((resolve, reject) => {
@@ -440,7 +428,6 @@ export class QScannerRunner {
 
   private downloadFile(url: string, destPath: string): Promise<void> {
     return new Promise((resolve, reject) => {
-      // Security: Only allow HTTPS downloads
       if (!url.startsWith('https://')) {
         reject(new Error('Security error: Only HTTPS URLs are allowed for downloads'));
         return;
@@ -453,7 +440,6 @@ export class QScannerRunner {
           if (response.statusCode === 301 || response.statusCode === 302) {
             const redirectUrl = response.headers.location;
             if (redirectUrl) {
-              // Security: Validate redirect URL is also HTTPS
               if (!redirectUrl.startsWith('https://')) {
                 file.close();
                 fs.unlinkSync(destPath);

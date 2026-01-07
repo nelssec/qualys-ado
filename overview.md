@@ -28,7 +28,7 @@ Navigate to **Project Settings > Service connections** and create a new **Qualys
 
 ```yaml
 # Container image scanning
-- task: QualysContainerScan@2
+- task: QualysContainerScan@1
   inputs:
     qualysConnection: 'QualysConnection'
     imageId: 'myregistry/myapp:$(Build.BuildId)'
@@ -38,7 +38,7 @@ Navigate to **Project Settings > Service connections** and create a new **Qualys
     scanSecrets: true   # Optional: enable secrets detection
 
 # Code scanning (SCA)
-- task: QualysCodeScan@2
+- task: QualysCodeScan@1
   inputs:
     qualysConnection: 'QualysConnection'
     scanPath: '$(Build.SourcesDirectory)'
@@ -81,8 +81,8 @@ For questions and issues, contact [Qualys Support](https://www.qualys.com/suppor
 **Initial Release**
 
 **Tasks:**
-- **QualysContainerScan@2** - Scan Docker container images for vulnerabilities
-- **QualysCodeScan@2** - Scan code dependencies (SCA) for vulnerabilities
+- **QualysContainerScan@1** - Scan Docker container images for vulnerabilities
+- **QualysCodeScan@1** - Scan code dependencies (SCA) for vulnerabilities
 
 **Features:**
 - Access Token authentication with Qualys Container Security
@@ -97,8 +97,10 @@ For questions and issues, contact [Qualys Support](https://www.qualys.com/suppor
 
 **Build Results UI:**
 - Dedicated scan results tabs for Container and Code scans
-- Vulnerability table with QID, CVE, severity, CVSS score, and package details
+- Vulnerability table with QID, CVE, severity, CVSS score, package details, and layer info
+- Software inventory table showing all packages found
 - Severity breakdown cards (Critical, High, Medium, Low, Info)
 - Sortable and filterable vulnerability list with search
-- Pagination for large result sets
+- Layer-based filtering to see vulnerabilities by container layer
+- Pagination controls (Show 25/50/All)
 - Direct links to CVE details on NVD

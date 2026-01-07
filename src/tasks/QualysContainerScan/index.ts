@@ -15,9 +15,6 @@ import {
 async function run(): Promise<void> {
   try {
     const qualysConnection = tl.getInput('qualysConnection', true)!;
-
-    // Get the endpoint authorization object directly
-    // This works with endpoint-auth-scheme-none where parameters are stored in authorization.parameters
     const endpointAuth = tl.getEndpointAuthorization(qualysConnection, false);
 
     if (!endpointAuth) {
@@ -43,7 +40,6 @@ async function run(): Promise<void> {
     console.log(`Auth Method: ${authMethod}`);
     console.log('Access Token: [CONFIGURED]');
 
-    // Get task inputs
     const imageId = tl.getInput('imageId', true)!;
     const storageDriver = tl.getInput('storageDriver', false) || 'none';
     const platform = tl.getInput('platform', false) || '';
@@ -61,7 +57,6 @@ async function run(): Promise<void> {
     const workItemSeverities = parseInt(tl.getInput('workItemSeverities', false) || '4', 10);
     const workItemAreaPath = tl.getInput('workItemAreaPath', false) || '';
 
-    // Build scan types array: always use 'pkg' (os+sca), optionally add 'secret'
     const scanTypes: ('pkg' | 'secret')[] = ['pkg'];
     if (scanSecrets) {
       scanTypes.push('secret');
@@ -91,7 +86,6 @@ async function run(): Promise<void> {
     console.log('Setting up QScanner CLI...');
     await runner.setup();
 
-    // Configure scan options
     const outputDir = path.join(tl.getVariable('Agent.TempDirectory') || '/tmp', 'qualys-scan-results');
     try {
       if (!fs.existsSync(outputDir)) {
@@ -124,17 +118,15 @@ async function run(): Promise<void> {
       scanOptions.policyTags = policyTags.split(',').map((t) => t.trim());
     }
 
-    // Execute scan with retry logic for vuln report fetch failures
     console.log('');
     console.log('Starting container image scan...');
     console.log('----------------------------------------');
 
     const MAX_RETRIES = 5;
-    const RETRY_DELAYS = [30, 60, 90, 120, 150]; // seconds between retries
+    const RETRY_DELAYS = [30, 60, 90, 120, 150];
     let result = await runner.scanImage(scanOptions);
     let retryCount = 0;
 
-    // Retry if vuln report fetch failed (exit code 40)
     while (result.exitCode === QScannerExitCode.FAILED_TO_GET_VULN_REPORT && retryCount < MAX_RETRIES) {
       const delay = RETRY_DELAYS[retryCount] || 60;
       retryCount++;
@@ -149,7 +141,6 @@ async function run(): Promise<void> {
     console.log('----------------------------------------');
     console.log('');
 
-    // Parse results
     let summary: VulnerabilitySummary = {
       total: 0,
       critical: 0,
@@ -164,7 +155,6 @@ async function run(): Promise<void> {
       summary = parsed.summary;
     }
 
-    // Set output variables
     tl.setVariable('vulnerabilityCount', summary.total.toString());
     tl.setVariable('criticalCount', summary.critical.toString());
     tl.setVariable('highCount', summary.high.toString());
@@ -173,7 +163,6 @@ async function run(): Promise<void> {
     tl.setVariable('policyResult', result.policyResult);
     tl.setVariable('reportPath', result.reportFile || '');
 
-    // Print summary
     console.log('========================================');
     console.log('Scan Results Summary');
     console.log('========================================');
@@ -189,19 +178,27 @@ async function run(): Promise<void> {
       console.log(`Policy Evaluation Result: ${result.policyResult}`);
     }
 
-    // Publish SARIF results if enabled
     if (publishResults && result.reportFile && fs.existsSync(result.reportFile)) {
       console.log('');
       console.log(`SARIF report available at: ${result.reportFile}`);
-      tl.uploadArtifact('qualys-container-scan', result.reportFile, 'qualys-container-scan');
 
-      // Also add as attachment for build results tab
+      const stagingDir = tl.getVariable('Build.ArtifactStagingDirectory');
+      if (stagingDir) {
+        const artifactDir = path.join(stagingDir, 'qualys-container-scan');
+        if (!fs.existsSync(artifactDir)) {
+          fs.mkdirSync(artifactDir, { recursive: true });
+        }
+        const destPath = path.join(artifactDir, path.basename(result.reportFile));
+        fs.copyFileSync(result.reportFile, destPath);
+        console.log(`SARIF copied to: ${destPath}`);
+        console.log('Add a PublishBuildArtifacts@1 task to publish the qualys-container-scan artifact');
+      }
+
       const reportFileName = path.basename(result.reportFile);
-      tl.addAttachment('qualys.scan.sarif', reportFileName, result.reportFile);
+      tl.addAttachment('qualys.container.sarif', reportFileName, result.reportFile);
       console.log(`SARIF attachment added: ${reportFileName}`);
     }
 
-    // Create work items if enabled
     let workItemsCreated = 0;
     if (createWorkItems && result.reportFile && fs.existsSync(result.reportFile)) {
       const accessToken = tl.getVariable('System.AccessToken');
@@ -254,23 +251,18 @@ async function run(): Promise<void> {
     }
     tl.setVariable('workItemsCreated', workItemsCreated.toString());
 
-    // Determine pass/fail
     let scanPassed = false;
     const failureReasons: string[] = [];
 
     if (usePolicyEvaluation) {
-      // Use QScanner's policy evaluation result
       scanPassed = result.policyResult === 'ALLOW';
       if (result.policyResult === 'DENY') {
         failureReasons.push('Qualys policy evaluation returned DENY');
       } else if (result.policyResult === 'AUDIT') {
-        // AUDIT means no policy matched - treat as pass but warn
         scanPassed = true;
         console.log('Warning: No Qualys policies matched for evaluation (AUDIT)');
       }
     } else {
-      // Use local count-based threshold evaluation
-      // -1 means unlimited (don't check that severity)
       if (maxCritical >= 0 && summary.critical > maxCritical) {
         failureReasons.push(`Found ${summary.critical} critical vulnerabilities (max: ${maxCritical})`);
       }
@@ -287,7 +279,6 @@ async function run(): Promise<void> {
       scanPassed = failureReasons.length === 0;
     }
 
-    // Check for scan execution errors
     if (
       result.exitCode !== QScannerExitCode.SUCCESS &&
       result.exitCode !== QScannerExitCode.POLICY_EVALUATION_DENY &&
@@ -320,7 +311,6 @@ async function run(): Promise<void> {
     }
     console.log('========================================');
 
-    // Cleanup
     runner.cleanup();
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
