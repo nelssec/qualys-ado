@@ -94,7 +94,6 @@ interface VulnerabilityRow {
 interface PackageInfo {
     name: string;
     version: string;
-    type: string;
     layerSHA?: string;
 }
 
@@ -457,7 +456,6 @@ class QualysScanResultsTab {
                         this.packages.push({
                             name: packageName,
                             version: installedVersion,
-                            type: this.detectPackageType(vulnSoftware.path || packageName),
                             layerSHA
                         });
                     }
@@ -505,20 +503,6 @@ class QualysScanResultsTab {
         this.sortVulnerabilities();
     }
 
-    private detectPackageType(pathOrName: string): string {
-        const lower = pathOrName.toLowerCase();
-        if (lower.includes("node_modules") || lower.endsWith(".js") || lower.includes("npm")) return "npm";
-        if (lower.endsWith(".jar") || lower.includes("maven") || lower.includes("gradle")) return "maven";
-        if (lower.endsWith(".whl") || lower.includes("pip") || lower.includes("python")) return "pip";
-        if (lower.includes("apt") || lower.endsWith(".deb")) return "deb";
-        if (lower.includes("rpm") || lower.includes("yum")) return "rpm";
-        if (lower.includes("apk")) return "apk";
-        if (lower.includes("gem") || lower.endsWith(".gem")) return "gem";
-        if (lower.includes("nuget") || lower.endsWith(".nupkg")) return "nuget";
-        if (lower.includes("cargo") || lower.endsWith(".crate")) return "cargo";
-        if (lower.includes("go") || lower.includes("golang")) return "go";
-        return "unknown";
-    }
 
     private getSeverity(result: SarifResult, rule?: SarifRule): number {
         // Get severity from rule properties (Qualys uses severity or customerSeverity)
@@ -888,7 +872,6 @@ dBz" alt="Qualys Logo" />
                 <tr>
                     <td><span class="package-name">${this.escapeHtml(pkg.name)}</span></td>
                     <td><span class="version-info">${this.escapeHtml(pkg.version || "-")}</span></td>
-                    <td>${this.escapeHtml(pkg.type || "-")}</td>
                     ${this.layers.length > 0 ? `<td>${layerDisplay}</td>` : ""}
                 </tr>
             `;
@@ -928,7 +911,6 @@ dBz" alt="Qualys Logo" />
                         <tr>
                             <th>Package Name</th>
                             <th>Version</th>
-                            <th>Type</th>
                             ${this.layers.length > 0 ? "<th>Layer</th>" : ""}
                         </tr>
                     </thead>
@@ -1127,8 +1109,7 @@ dBz" alt="Qualys Logo" />
                 const query = this.pkgSearchQuery.toLowerCase();
                 const searchFields = [
                     pkg.name,
-                    pkg.version || "",
-                    pkg.type || ""
+                    pkg.version || ""
                 ].join(" ").toLowerCase();
 
                 if (!searchFields.includes(query)) {
