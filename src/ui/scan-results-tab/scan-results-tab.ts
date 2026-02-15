@@ -89,12 +89,31 @@ interface VulnerabilityRow {
     description: string;
     location: string;
     layerSHA?: string;
+    layerCommand?: string;
+}
+
+interface LayerInfo {
+    LayerContentHash: string;
+    Command: string;
+}
+
+interface LayerGroup {
+    layerSHA: string;
+    layerCommand: string;
+    vulnerabilities: VulnerabilityRow[];
+    critical: number;
+    high: number;
+    medium: number;
+    low: number;
+    info: number;
+    expanded: boolean;
 }
 
 interface PackageInfo {
     name: string;
     version: string;
     layerSHA?: string;
+    layerCommand?: string;
 }
 
 interface ScanSummary {
@@ -118,6 +137,9 @@ class QualysScanResultsTab {
     private packages: PackageInfo[] = [];
     private filteredPackages: PackageInfo[] = [];
     private layers: string[] = [];
+    private layerCommandMap: Map<string, string> = new Map();
+    private layerGroups: LayerGroup[] = [];
+    private viewMode: "grouped" | "flat" = "grouped";
     private currentPage = 1;
     private pageSize: number | "all" = 25;
     private sortColumn = "severity";
@@ -125,7 +147,6 @@ class QualysScanResultsTab {
     private filterSeverity = "all";
     private filterLayer = "all";
     private searchQuery = "";
-    // Package table state
     private pkgPageSize: number | "all" = 25;
     private pkgFilterLayer = "all";
     private pkgSearchQuery = "";
@@ -567,6 +588,9 @@ class QualysScanResultsTab {
             rulesMap.set(rule.id, rule);
         });
 
+        this.layerCommandMap = this.buildLayerCommandMap(run);
+        console.log("Built layer command map with", this.layerCommandMap.size, "entries");
+
         const layerSet = new Set<string>();
         const seenPackages = new Set<string>();
         this.packages = [];
@@ -592,26 +616,25 @@ class QualysScanResultsTab {
             const vulnSoftwareList = result.properties?.vulnerableSoftware || [];
 
             if (vulnSoftwareList.length > 0) {
-                // Create one vulnerability row per affected package
                 vulnSoftwareList.forEach(vulnSoftware => {
                     const packageName = vulnSoftware.name || this.extractPackageName(result);
                     const installedVersion = vulnSoftware.installedVersion || "";
                     const fixedVersion = vulnSoftware.fixedVersion || "";
                     const layerSHA = vulnSoftware.layerSHA;
+                    const layerCommand = layerSHA ? this.getLayerCommand(layerSHA) : undefined;
 
-                    // Track layers
                     if (layerSHA) {
                         layerSet.add(layerSHA);
                     }
 
-                    // Track packages for software inventory
                     const pkgKey = `${packageName}:${installedVersion}`;
                     if (!seenPackages.has(pkgKey) && packageName) {
                         seenPackages.add(pkgKey);
                         this.packages.push({
                             name: packageName,
                             version: installedVersion,
-                            layerSHA
+                            layerSHA,
+                            layerCommand
                         });
                     }
 
@@ -627,7 +650,8 @@ class QualysScanResultsTab {
                         fixedVersion,
                         description: result.message.text || rule?.shortDescription?.text || "",
                         location: this.extractLocation(result),
-                        layerSHA
+                        layerSHA,
+                        layerCommand
                     });
                 });
             } else {
@@ -649,13 +673,76 @@ class QualysScanResultsTab {
             }
         });
 
-        // Store unique layers sorted
         this.layers = Array.from(layerSet).sort();
 
         console.log("Parsed", this.vulnerabilities.length, "vulnerabilities,", this.packages.length, "packages,", this.layers.length, "layers");
         this.filteredVulnerabilities = [...this.vulnerabilities];
         this.filteredPackages = [...this.packages];
         this.sortVulnerabilities();
+        this.buildLayerGroups();
+    }
+
+    private buildLayerCommandMap(run: SarifRun & { properties?: { layerInfo?: LayerInfo[] } }): Map<string, string> {
+        const map = new Map<string, string>();
+        const layerInfo = run.properties?.layerInfo;
+        if (!layerInfo || !Array.isArray(layerInfo)) {
+            return map;
+        }
+
+        for (const layer of layerInfo) {
+            const hash = layer.LayerContentHash;
+            const command = layer.Command;
+            if (hash && command) {
+                map.set("sha256:" + hash, command);
+                map.set(hash, command);
+            }
+        }
+
+        return map;
+    }
+
+    private getLayerCommand(layerSHA: string): string | undefined {
+        return this.layerCommandMap.get(layerSHA) ||
+               this.layerCommandMap.get(layerSHA.replace("sha256:", ""));
+    }
+
+    private buildLayerGroups(): void {
+        const groupMap = new Map<string, LayerGroup>();
+
+        for (const vuln of this.filteredVulnerabilities) {
+            const layerKey = vuln.layerSHA || "__no_layer__";
+
+            if (!groupMap.has(layerKey)) {
+                groupMap.set(layerKey, {
+                    layerSHA: vuln.layerSHA || "",
+                    layerCommand: vuln.layerCommand || "",
+                    vulnerabilities: [],
+                    critical: 0,
+                    high: 0,
+                    medium: 0,
+                    low: 0,
+                    info: 0,
+                    expanded: true
+                });
+            }
+
+            const group = groupMap.get(layerKey)!;
+            group.vulnerabilities.push(vuln);
+
+            switch (vuln.severity) {
+                case 5: group.critical++; break;
+                case 4: group.high++; break;
+                case 3: group.medium++; break;
+                case 2: group.low++; break;
+                default: group.info++; break;
+            }
+        }
+
+        this.layerGroups = Array.from(groupMap.values()).sort((a, b) => {
+            const aSeverity = a.critical * 1000 + a.high * 100 + a.medium * 10 + a.low;
+            const bSeverity = b.critical * 1000 + b.high * 100 + b.medium * 10 + b.low;
+            return bSeverity - aSeverity;
+        });
     }
 
 
@@ -834,13 +921,6 @@ dBz" alt="Qualys Logo" />
             `;
         }
 
-        const effectivePageSize = this.pageSize === "all" ? this.filteredVulnerabilities.length : this.pageSize;
-        const startIdx = (this.currentPage - 1) * effectivePageSize;
-        const endIdx = Math.min(startIdx + effectivePageSize, this.filteredVulnerabilities.length);
-        const pageVulns = this.filteredVulnerabilities.slice(startIdx, endIdx);
-
-        const rows = pageVulns.map(v => this.renderVulnerabilityRow(v)).join("");
-
         const layerOptions = this.layers.length > 0
             ? this.layers.map(layer => {
                 const shortLayer = layer.startsWith("sha256:") ? layer.substring(7, 19) : layer.substring(0, 12);
@@ -848,11 +928,27 @@ dBz" alt="Qualys Logo" />
               }).join("")
             : "";
 
+        const viewToggle = this.layers.length > 0 ? `
+            <div class="view-toggle">
+                <button class="view-btn ${this.viewMode === "grouped" ? "active" : ""}" data-view="grouped">
+                    Grouped by Layer
+                </button>
+                <button class="view-btn ${this.viewMode === "flat" ? "active" : ""}" data-view="flat">
+                    Flat View
+                </button>
+            </div>
+        ` : "";
+
+        const tableContent = this.viewMode === "grouped" && this.layers.length > 0
+            ? this.renderGroupedVulnerabilities()
+            : this.renderFlatVulnerabilities();
+
         return `
             <div class="vulnerabilities-section">
                 <div class="section-header">
                     <h2 class="section-title">Vulnerabilities (<span id="vuln-count">${this.filteredVulnerabilities.length}</span>)</h2>
                     <div class="filter-controls">
+                        ${viewToggle}
                         <input type="text"
                                class="search-input"
                                id="search-input"
@@ -866,7 +962,7 @@ dBz" alt="Qualys Logo" />
                             <option value="2" ${this.filterSeverity === "2" ? "selected" : ""}>Low</option>
                             <option value="1" ${this.filterSeverity === "1" ? "selected" : ""}>Info</option>
                         </select>
-                        ${this.layers.length > 0 ? `
+                        ${this.layers.length > 0 && this.viewMode === "flat" ? `
                         <select class="filter-select" id="layer-filter">
                             <option value="all" ${this.filterLayer === "all" ? "selected" : ""}>All Layers</option>
                             ${layerOptions}
@@ -882,35 +978,115 @@ dBz" alt="Qualys Logo" />
                 <div id="vuln-no-results" class="no-results" style="display: ${this.filteredVulnerabilities.length === 0 ? "block" : "none"};">
                     <p>No vulnerabilities match your search criteria.</p>
                 </div>
-                <table class="vuln-table" style="display: ${this.filteredVulnerabilities.length === 0 ? "none" : "table"};">
-                    <thead>
-                        <tr>
-                            <th data-sort="severity" class="${this.sortColumn === "severity" ? "sorted" : ""}">
-                                Severity <span class="sort-icon">${this.sortDirection === "desc" ? "\u25BC" : "\u25B2"}</span>
-                            </th>
-                            <th data-sort="qid">QID</th>
-                            <th data-sort="cves">CVE</th>
-                            <th data-sort="cvssScore" class="${this.sortColumn === "cvssScore" ? "sorted" : ""}">
-                                CVSS <span class="sort-icon">${this.sortDirection === "desc" ? "\u25BC" : "\u25B2"}</span>
-                            </th>
-                            <th data-sort="packageName" class="${this.sortColumn === "packageName" ? "sorted" : ""}">
-                                Package <span class="sort-icon">${this.sortDirection === "desc" ? "\u25BC" : "\u25B2"}</span>
-                            </th>
-                            <th>Version</th>
-                            <th>Fixed In</th>
-                            ${this.layers.length > 0 ? "<th>Layer</th>" : ""}
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${rows}
-                    </tbody>
-                </table>
-                ${this.renderPagination()}
+                ${tableContent}
+                ${this.viewMode === "flat" ? this.renderPagination() : ""}
             </div>
         `;
     }
 
-    private renderVulnerabilityRow(v: VulnerabilityRow): string {
+    private renderGroupedVulnerabilities(): string {
+        if (this.layerGroups.length === 0) {
+            return "";
+        }
+
+        const groupsHtml = this.layerGroups.map((group, groupIndex) => {
+            const commandDisplay = group.layerCommand
+                ? (group.layerCommand.length > 80 ? group.layerCommand.substring(0, 77) + "..." : group.layerCommand)
+                : (group.layerSHA ? this.getShortLayer(group.layerSHA) : "Unknown Layer");
+
+            const severityBadges = this.renderGroupSeverityBadges(group);
+
+            const vulnRows = group.vulnerabilities.map(v => this.renderVulnerabilityRow(v, true)).join("");
+
+            return `
+                <div class="layer-group ${group.expanded ? "expanded" : "collapsed"}" data-group-index="${groupIndex}">
+                    <div class="layer-group-header" data-group-index="${groupIndex}">
+                        <span class="layer-group-toggle">${group.expanded ? "\u25BC" : "\u25B6"}</span>
+                        <span class="layer-group-cmd" title="${this.escapeHtml(group.layerCommand || group.layerSHA)}">${this.escapeHtml(commandDisplay)}</span>
+                        <span class="layer-group-count">${group.vulnerabilities.length} vulnerabilities</span>
+                        <span class="layer-group-severity">${severityBadges}</span>
+                    </div>
+                    <div class="layer-group-content" style="display: ${group.expanded ? "block" : "none"};">
+                        <table class="vuln-table grouped-table">
+                            <thead>
+                                <tr>
+                                    <th>Severity</th>
+                                    <th>QID</th>
+                                    <th>CVE</th>
+                                    <th>CVSS</th>
+                                    <th>Package</th>
+                                    <th>Version</th>
+                                    <th>Fixed In</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${vulnRows}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        }).join("");
+
+        return `<div class="layer-groups-container">${groupsHtml}</div>`;
+    }
+
+    private renderGroupSeverityBadges(group: LayerGroup): string {
+        let badges = "";
+        if (group.critical > 0) {
+            badges += `<span class="severity-badge-sm critical">${group.critical} Critical</span>`;
+        }
+        if (group.high > 0) {
+            badges += `<span class="severity-badge-sm high">${group.high} High</span>`;
+        }
+        if (group.medium > 0) {
+            badges += `<span class="severity-badge-sm medium">${group.medium} Medium</span>`;
+        }
+        if (group.low > 0) {
+            badges += `<span class="severity-badge-sm low">${group.low} Low</span>`;
+        }
+        if (group.info > 0) {
+            badges += `<span class="severity-badge-sm info">${group.info} Info</span>`;
+        }
+        return badges;
+    }
+
+    private renderFlatVulnerabilities(): string {
+        const effectivePageSize = this.pageSize === "all" ? this.filteredVulnerabilities.length : this.pageSize;
+        const startIdx = (this.currentPage - 1) * effectivePageSize;
+        const endIdx = Math.min(startIdx + effectivePageSize, this.filteredVulnerabilities.length);
+        const pageVulns = this.filteredVulnerabilities.slice(startIdx, endIdx);
+
+        const rows = pageVulns.map(v => this.renderVulnerabilityRow(v, false)).join("");
+
+        return `
+            <table class="vuln-table" style="display: ${this.filteredVulnerabilities.length === 0 ? "none" : "table"};">
+                <thead>
+                    <tr>
+                        <th data-sort="severity" class="${this.sortColumn === "severity" ? "sorted" : ""}">
+                            Severity <span class="sort-icon">${this.sortDirection === "desc" ? "\u25BC" : "\u25B2"}</span>
+                        </th>
+                        <th data-sort="qid">QID</th>
+                        <th data-sort="cves">CVE</th>
+                        <th data-sort="cvssScore" class="${this.sortColumn === "cvssScore" ? "sorted" : ""}">
+                            CVSS <span class="sort-icon">${this.sortDirection === "desc" ? "\u25BC" : "\u25B2"}</span>
+                        </th>
+                        <th data-sort="packageName" class="${this.sortColumn === "packageName" ? "sorted" : ""}">
+                            Package <span class="sort-icon">${this.sortDirection === "desc" ? "\u25BC" : "\u25B2"}</span>
+                        </th>
+                        <th>Version</th>
+                        <th>Fixed In</th>
+                        ${this.layers.length > 0 ? "<th>Layer</th>" : ""}
+                    </tr>
+                </thead>
+                <tbody>
+                    ${rows}
+                </tbody>
+            </table>
+        `;
+    }
+
+    private renderVulnerabilityRow(v: VulnerabilityRow, isGrouped: boolean = false): string {
         const severityClass = v.severityLabel.toLowerCase();
         const qidDisplay = v.qid ? `QID-${v.qid}` : "-";
         const cveDisplay = v.cves.length > 0
@@ -923,9 +1099,10 @@ dBz" alt="Qualys Logo" />
             ? `<span class="cvss-score ${this.getCvssClass(v.cvssScore)}">${v.cvssScore.toFixed(1)}</span>`
             : "-";
 
-        const layerDisplay = this.layers.length > 0
+        const showLayer = this.layers.length > 0 && !isGrouped;
+        const layerDisplay = showLayer
             ? (v.layerSHA
-                ? `<span class="layer-badge" title="${this.escapeHtml(v.layerSHA)}">${this.getShortLayer(v.layerSHA)}</span>`
+                ? `<span class="layer-badge" title="${this.escapeHtml(v.layerCommand || v.layerSHA)}">${this.getShortLayer(v.layerSHA)}</span>`
                 : "-")
             : "";
 
@@ -938,7 +1115,7 @@ dBz" alt="Qualys Logo" />
                 <td><span class="package-name">${this.escapeHtml(v.packageName)}</span></td>
                 <td><span class="version-info">${this.escapeHtml(v.installedVersion)}</span></td>
                 <td>${v.fixedVersion ? `<span class="fixed-version">${this.escapeHtml(v.fixedVersion)}</span>` : "-"}</td>
-                ${this.layers.length > 0 ? `<td>${layerDisplay}</td>` : ""}
+                ${showLayer ? `<td>${layerDisplay}</td>` : ""}
             </tr>
         `;
     }
@@ -1018,9 +1195,10 @@ dBz" alt="Qualys Logo" />
             : "";
 
         const rows = displayedPackages.map(pkg => {
+            const layerTooltip = pkg.layerCommand || pkg.layerSHA || "";
             const layerDisplay = this.layers.length > 0
                 ? (pkg.layerSHA
-                    ? `<span class="layer-badge" title="${this.escapeHtml(pkg.layerSHA)}">${this.getShortLayer(pkg.layerSHA)}</span>`
+                    ? `<span class="layer-badge" title="${this.escapeHtml(layerTooltip)}">${this.getShortLayer(pkg.layerSHA)}</span>`
                     : "-")
                 : "";
             return `
@@ -1098,7 +1276,28 @@ dBz" alt="Qualys Logo" />
     }
 
     private attachEventListeners(): void {
-        // Severity filter
+        const viewBtns = document.querySelectorAll(".view-btn");
+        viewBtns.forEach(btn => {
+            btn.addEventListener("click", () => {
+                const view = btn.getAttribute("data-view") as "grouped" | "flat";
+                if (view && view !== this.viewMode) {
+                    this.viewMode = view;
+                    this.renderResults();
+                }
+            });
+        });
+
+        const layerGroupHeaders = document.querySelectorAll(".layer-group-header");
+        layerGroupHeaders.forEach(header => {
+            header.addEventListener("click", () => {
+                const groupIndex = parseInt(header.getAttribute("data-group-index") || "0");
+                if (this.layerGroups[groupIndex]) {
+                    this.layerGroups[groupIndex].expanded = !this.layerGroups[groupIndex].expanded;
+                    this.renderResults();
+                }
+            });
+        });
+
         const severityFilter = document.getElementById("severity-filter") as HTMLSelectElement;
         if (severityFilter) {
             severityFilter.addEventListener("change", (e) => {
@@ -1107,7 +1306,6 @@ dBz" alt="Qualys Logo" />
             });
         }
 
-        // Layer filter (vulnerability table)
         const layerFilter = document.getElementById("layer-filter") as HTMLSelectElement;
         if (layerFilter) {
             layerFilter.addEventListener("change", (e) => {
@@ -1249,6 +1447,7 @@ dBz" alt="Qualys Logo" />
 
         this.currentPage = 1;
         this.sortVulnerabilities();
+        this.buildLayerGroups();
         this.renderResults();
     }
 

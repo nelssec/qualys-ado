@@ -515,3 +515,155 @@ body {
     font-family: "Cascadia Code", "Fira Code", Consolas, monospace;
     font-size: 13px;
 }
+
+.view-toggle {
+    display: inline-flex;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-right: 8px;
+}
+
+.view-btn {
+    padding: 6px 12px;
+    border: none;
+    background: var(--bg-primary);
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--text-secondary);
+    transition: all 0.15s;
+}
+
+.view-btn:first-child {
+    border-right: 1px solid var(--border-color);
+}
+
+.view-btn:hover {
+    background: var(--bg-secondary);
+}
+
+.view-btn.active {
+    background: var(--info-color);
+    color: white;
+}
+
+.layer-groups-container {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.layer-group {
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--bg-primary);
+}
+
+.layer-group-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    background: var(--bg-secondary);
+    cursor: pointer;
+    transition: background 0.15s;
+    flex-wrap: wrap;
+}
+
+.layer-group-header:hover {
+    background: #e1dfdd;
+}
+
+.layer-group-toggle {
+    width: 20px;
+    color: var(--info-color);
+    font-size: 12px;
+    flex-shrink: 0;
+}
+
+.layer-group-cmd {
+    font-family: "Cascadia Code", "Fira Code", Consolas, monospace;
+    font-size: 12px;
+    color: var(--text-primary);
+    background: var(--bg-primary);
+    padding: 6px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    max-width: 500px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.layer-group-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--info-color);
+    color: white;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 500;
+    flex-shrink: 0;
+}
+
+.layer-group-severity {
+    display: inline-flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-left: auto;
+}
+
+.severity-badge-sm {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.severity-badge-sm.critical {
+    background: var(--critical-color);
+    color: white;
+}
+
+.severity-badge-sm.high {
+    background: var(--high-color);
+    color: white;
+}
+
+.severity-badge-sm.medium {
+    background: var(--medium-color);
+    color: white;
+}
+
+.severity-badge-sm.low {
+    background: var(--low-color);
+    color: white;
+}
+
+.severity-badge-sm.info {
+    background: var(--info-color);
+    color: white;
+}
+
+.layer-group-content {
+    border-top: 1px solid var(--border-color);
+}
+
+.layer-group-content .grouped-table {
+    margin: 0;
+    border: none;
+    border-radius: 0;
+}
+
+.layer-group-content .grouped-table th {
+    background: #faf9f8;
+}
+
+.layer-group.collapsed .layer-group-content {
+    display: none;
+}
