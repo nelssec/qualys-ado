@@ -59,7 +59,8 @@
   ],
   "scopes": [
     "vso.build",
-    "vso.work"
+    "vso.work",
+    "vso.serviceendpoint.manage"
   ],
   "contributions": [
     {

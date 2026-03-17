@@ -322,5 +322,4 @@ MIT
 
 ## Support
 
-- [Qualys Documentation](https://docs.qualys.com/en/cs/latest/)
-- [Report Issues](https://github.com/nelssec/qualys-ado/issues)
+- [GitHub Issues](https://github.com/nelssec/qualys-ado/issues)

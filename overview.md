@@ -2,8 +2,6 @@
 
 Shift-left security with Qualys vulnerability scanning directly in your Azure DevOps pipelines. Detect vulnerabilities, misconfigurations, and secrets in container images and code dependencies before they reach production.
 
-![Qualys Scan Results](images/scan-results.png)
-
 ## Features
 
 - **Container Image Scanning** - Scan Docker images for OS package and application vulnerabilities using the Qualys vulnerability database
@@ -21,8 +19,6 @@ Navigate to **Project Settings > Service connections** and create a new **Qualys
 1. Enter your **Access Token** from Container Security > Configuration > Access Token
 2. Select your **Pod** (region)
 3. Save the connection
-
-![Service Connection Setup](images/service-connection.png)
 
 ### 2. Add Tasks to Your Pipeline
 
@@ -73,7 +69,7 @@ For detailed configuration options and advanced usage, see the [Qualys Container
 
 ## Support
 
-For questions and issues, contact [Qualys Support](https://www.qualys.com/support/) or visit the [GitHub repository](https://github.com/nelssec/qualys-ado).
+- [GitHub Issues](https://github.com/nelssec/qualys-ado/issues)
 
 ## Release Notes
 
