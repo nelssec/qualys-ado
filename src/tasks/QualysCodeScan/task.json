@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/Microsoft/azure-pipelines-task-lib/master/tasks.schema.json",
-  "id": "b2c3d4e5-f6a7-8901-bcde-f23456789012",
+  "id": "d36c10e1-9ca0-450c-b5b0-8e78bb878c98",
   "name": "QualysCodeScan",
   "friendlyName": "Qualys Code Scan",
   "description": "Scan code for vulnerabilities using Qualys QScanner CLI",

@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/Microsoft/azure-pipelines-task-lib/master/tasks.schema.json",
-  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "id": "e624f1c1-2db6-4bc5-83ce-ecb3be3d6980",
   "name": "QualysContainerScan",
   "friendlyName": "Qualys Container Security Scan",
   "description": "Scan Docker container images for vulnerabilities using Qualys QScanner CLI",

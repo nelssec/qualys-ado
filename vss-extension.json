@@ -150,7 +150,7 @@
         "name": "Qualys Image Scan",
         "uri": "ui/scan-results-tab/scan-results-tab.html",
         "supportsTasks": [
-          "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+          "e624f1c1-2db6-4bc5-83ce-ecb3be3d6980"
         ],
         "order": 50,
         "dynamic": true
@@ -165,7 +165,7 @@
         "name": "Qualys Code Scan",
         "uri": "ui/scan-results-tab/scan-results-tab.html",
         "supportsTasks": [
-          "b2c3d4e5-f6a7-8901-bcde-f23456789012"
+          "d36c10e1-9ca0-450c-b5b0-8e78bb878c98"
         ],
         "order": 51,
         "dynamic": true
