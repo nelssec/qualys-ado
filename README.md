@@ -1,147 +1,132 @@
 # Qualys Security Scanner for Azure DevOps
 
-Integrate Qualys vulnerability scanning into your Azure Pipelines using the QScanner CLI.
+Integrate Qualys vulnerability scanning directly into your Azure Pipelines. Scan container images and code dependencies for vulnerabilities, enforce security policies, and gate builds — all powered by the Qualys QScanner CLI.
 
-## Features
+## What This Extension Does
 
-- **Container Security Scanning**: Scan Docker images for OS and application vulnerabilities
-- **Software Composition Analysis (SCA)**: Scan code dependencies for known vulnerabilities
-- **Secrets Detection**: Find exposed credentials, API keys, and tokens in your code
-- **Policy-Based Gating**: Use centralized Qualys policies to control build pass/fail
-- **SBOM Generation**: Generate Software Bill of Materials in SPDX or CycloneDX format
-- **SARIF Reports**: Publish results to Azure DevOps code scanning
-- **Work Item Creation**: Automatically create Bug work items for discovered vulnerabilities
+This extension adds two pipeline tasks to Azure DevOps:
 
-## Installation
+| Task | What It Scans | Use Case |
+|------|---------------|----------|
+| **QualysContainerScan@1** | Docker container images | Find OS and application vulnerabilities in your images before pushing to a registry |
+| **QualysCodeScan@1** | Code dependencies (SCA) | Find known CVEs in your npm, Maven, pip, Go, and NuGet packages |
 
-### From Visual Studio Marketplace
+Both tasks support:
+- **Vulnerability thresholds** — fail the build if critical/high/medium/low counts exceed your limits
+- **Qualys policy evaluation** — use centralized policies configured in the Qualys portal
+- **Secrets detection** — find exposed credentials, API keys, and tokens
+- **SARIF reports** — publish results to Azure DevOps code scanning
+- **Work item creation** — automatically create Bug work items for discovered vulnerabilities
+- **SBOM generation** (Code Scan only) — generate SPDX and/or CycloneDX SBOMs
 
-1. Go to your Azure DevOps organization
-2. Navigate to **Organization Settings > Extensions**
-3. Click **Browse Marketplace**
-4. Search for "Qualys Security Scanner"
-5. Click **Get it free** and install to your organization
+## Prerequisites
 
-### From VSIX File
+- A **Qualys subscription** with the Container Security module enabled
+- A **Qualys Access Token** (found in Container Security > Configuration > Access Token)
+- A **Linux-based** Azure DevOps build agent (`ubuntu-latest` or self-hosted Linux amd64)
 
-1. Go to **Organization Settings > Extensions**
-2. Click **Upload extension**
-3. Upload the `.vsix` file
+## Quick Start
 
-## Setup
+### Step 1: Install the Extension
 
-### 1. Get Qualys Access Token
+1. In Azure DevOps, go to **Organization Settings > Extensions > Browse Marketplace**
+2. Search for **"Qualys Security Scanner"**
+3. Click **Get it free** and install to your organization
 
-1. Log into the Qualys portal
-2. Navigate to **Container Security > Configuration > Access Token**
-3. Copy the access token
+### Step 2: Create a Service Connection
 
-### 2. Create a Service Connection
+1. Go to **Project Settings > Service connections > New service connection**
+2. Select **Qualys API Connection**
+3. Enter your **Access Token**
+4. Select your **Pod** (e.g., US1, EU1, CA1 — see [full list](#qualys-pods) below)
+5. Name it (e.g., `QualysConnection`) and click **Save**
 
-1. In Azure DevOps, go to **Project Settings > Service connections**
-2. Click **New service connection**
-3. Select **Qualys API Connection**
-4. Enter your **Access Token** from Container Security
-5. Select your **Pod** (region: US1, CA1, EU1, etc.)
-6. Give it a name (e.g., "QualysConnection")
-7. Click **Save**
+### Step 3: Add a Scan Task to Your Pipeline
 
-## Tasks
-
-### QualysContainerScan@1
-
-Scans Docker container images for vulnerabilities.
+**Container image scan:**
 
 ```yaml
 - task: QualysContainerScan@1
+  displayName: 'Qualys Container Scan'
   inputs:
-    # Required
     qualysConnection: 'QualysConnection'
     imageId: 'myregistry/myapp:$(Build.BuildId)'
-
-    # Policy Evaluation (recommended)
-    usePolicyEvaluation: true          # Use Qualys centralized policies
-    policyTags: 'production,ci-cd'     # Filter which policies apply
-
-    # Local Thresholds (when usePolicyEvaluation=false)
-    # Set max allowed count per severity. -1 = unlimited (ignore)
-    maxCritical: '0'                   # Fail if any critical found (default)
-    maxHigh: '0'                       # Fail if any high found (default)
-    maxMedium: '-1'                    # Don't fail on medium (default)
-    maxLow: '-1'                       # Don't fail on low (default)
-
-    # Scan Options
-    scanSecrets: false                 # Enable secrets detection
-    storageDriver: 'none'              # none, docker-overlay2, containerd-overlayfs
-    platform: 'linux/amd64'            # For multi-arch images
-
-    # Advanced
-    scanTimeout: 300                   # Timeout in seconds
-    continueOnError: false             # Continue pipeline if scan fails
-    publishResults: true               # Publish SARIF to Azure DevOps
-
-    # Work Items (requires OAuth token access)
-    createWorkItems: false             # Create Bug work items for vulnerabilities
-    workItemSeverities: '4'            # Min severity: 5=Critical, 4=High, 3=Medium
-    workItemAreaPath: ''               # Optional area path for work items
+    maxCritical: 0    # Fail on any critical vulnerability
+    maxHigh: 0        # Fail on any high vulnerability
 ```
 
-#### Output Variables
-
-| Variable | Description |
-|----------|-------------|
-| `vulnerabilityCount` | Total vulnerabilities found |
-| `criticalCount` | Critical severity count |
-| `highCount` | High severity count |
-| `mediumCount` | Medium severity count |
-| `lowCount` | Low severity count |
-| `policyResult` | ALLOW, DENY, or AUDIT |
-| `scanPassed` | true/false |
-| `reportPath` | Path to SARIF report |
-| `workItemsCreated` | Number of work items created |
-
-### QualysCodeScan@1
-
-Scans code dependencies for vulnerabilities (Software Composition Analysis).
+**Code dependency scan (SCA):**
 
 ```yaml
 - task: QualysCodeScan@1
+  displayName: 'Qualys Code Scan'
   inputs:
-    # Required
     qualysConnection: 'QualysConnection'
     scanPath: '$(Build.SourcesDirectory)'
-
-    # Policy Evaluation (recommended)
-    usePolicyEvaluation: true          # Use Qualys centralized policies
-    policyTags: 'sca-policy'
-
-    # Local Thresholds (when usePolicyEvaluation=false)
-    # Set max allowed count per severity. -1 = unlimited (ignore)
-    maxCritical: '0'                   # Fail if any critical found (default)
-    maxHigh: '0'                       # Fail if any high found (default)
-    maxMedium: '-1'                    # Don't fail on medium (default)
-    maxLow: '-1'                       # Don't fail on low (default)
-
-    # Scan Options
-    scanSecrets: false                 # Enable secrets detection
-    excludeDirs: 'node_modules,vendor' # Directories to skip
-    offlineScan: false                 # Scan without uploading to Qualys
-
-    # SBOM Generation
+    maxCritical: 0
+    maxHigh: 0
     generateSbom: true
-    sbomFormat: 'spdx'                 # spdx, cyclonedx, or both
-
-    # Advanced
-    continueOnError: false
-    publishResults: true
-
-    # Work Items (requires OAuth token access)
-    createWorkItems: false             # Create Bug work items for vulnerabilities
-    workItemSeverities: '4'            # Min severity: 5=Critical, 4=High, 3=Medium
-    workItemAreaPath: ''               # Optional area path for work items
 ```
 
-#### Output Variables
+That's it. The task downloads QScanner automatically — no manual binary installation required.
+
+---
+
+## Configuration Reference
+
+### QualysContainerScan@1
+
+Scans a Docker container image for vulnerabilities.
+
+| Input | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `qualysConnection` | Yes | — | Qualys service connection name |
+| `imageId` | Yes | — | Image to scan (e.g., `myregistry/myapp:tag` or SHA256) |
+| `usePolicyEvaluation` | No | `false` | Use Qualys cloud policies instead of local thresholds |
+| `policyTags` | No | — | Comma-separated policy tags (requires `usePolicyEvaluation: true`) |
+| `maxCritical` | No | `0` | Max critical vulns before failing (`-1` = unlimited) |
+| `maxHigh` | No | `0` | Max high vulns before failing (`-1` = unlimited) |
+| `maxMedium` | No | `-1` | Max medium vulns before failing (`-1` = unlimited) |
+| `maxLow` | No | `-1` | Max low vulns before failing (`-1` = unlimited) |
+| `scanSecrets` | No | `false` | Enable secrets detection |
+| `storageDriver` | No | `none` | `none`, `docker-overlay2`, `containerd-overlayfs`, `podman-overlay` |
+| `platform` | No | — | Platform for multi-arch images (e.g., `linux/amd64`) |
+| `scanTimeout` | No | `300` | Timeout in seconds |
+| `continueOnError` | No | `false` | Continue pipeline even if scan fails |
+| `publishResults` | No | `true` | Publish SARIF to Azure DevOps |
+| `createWorkItems` | No | `false` | Create Bug work items for vulnerabilities |
+| `workItemSeverities` | No | `4` | Min severity for work items (5=Critical, 4=High, 3=Medium, 2=Low, 1=All) |
+| `workItemAreaPath` | No | — | Area path for created work items |
+
+### QualysCodeScan@1
+
+Scans code dependencies for known vulnerabilities (Software Composition Analysis).
+
+| Input | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `qualysConnection` | Yes | — | Qualys service connection name |
+| `scanPath` | Yes | `$(Build.SourcesDirectory)` | Path to source code directory |
+| `usePolicyEvaluation` | No | `false` | Use Qualys cloud policies instead of local thresholds |
+| `policyTags` | No | — | Comma-separated policy tags (requires `usePolicyEvaluation: true`) |
+| `maxCritical` | No | `0` | Max critical vulns before failing (`-1` = unlimited) |
+| `maxHigh` | No | `0` | Max high vulns before failing (`-1` = unlimited) |
+| `maxMedium` | No | `-1` | Max medium vulns before failing (`-1` = unlimited) |
+| `maxLow` | No | `-1` | Max low vulns before failing (`-1` = unlimited) |
+| `scanSecrets` | No | `false` | Enable secrets detection |
+| `excludeDirs` | No | — | Comma-separated directories to skip (e.g., `node_modules,vendor`) |
+| `offlineScan` | No | `false` | Scan without uploading to Qualys platform |
+| `generateSbom` | No | `true` | Generate Software Bill of Materials |
+| `sbomFormat` | No | `spdx` | `spdx`, `cyclonedx`, or `spdx,cyclonedx` |
+| `scanTimeout` | No | `300` | Timeout in seconds |
+| `continueOnError` | No | `false` | Continue pipeline even if scan fails |
+| `publishResults` | No | `true` | Publish SARIF to Azure DevOps |
+| `createWorkItems` | No | `false` | Create Bug work items for vulnerabilities |
+| `workItemSeverities` | No | `4` | Min severity for work items (5=Critical, 4=High, 3=Medium, 2=Low, 1=All) |
+| `workItemAreaPath` | No | — | Area path for created work items |
+
+### Output Variables
+
+Both tasks set the following output variables (access via `$(taskName.variableName)`):
 
 | Variable | Description |
 |----------|-------------|
@@ -150,11 +135,13 @@ Scans code dependencies for vulnerabilities (Software Composition Analysis).
 | `highCount` | High severity count |
 | `mediumCount` | Medium severity count |
 | `lowCount` | Low severity count |
-| `policyResult` | ALLOW, DENY, or AUDIT |
-| `scanPassed` | true/false |
-| `reportPath` | Path to SARIF report |
-| `sbomPath` | Path to generated SBOM file(s) |
+| `policyResult` | `ALLOW`, `DENY`, or `AUDIT` |
+| `scanPassed` | `true` or `false` |
+| `reportPath` | Path to SARIF report file |
+| `sbomPath` | Path to SBOM file(s) (Code Scan only) |
 | `workItemsCreated` | Number of work items created |
+
+---
 
 ## Pipeline Examples
 
@@ -169,22 +156,22 @@ pool:
 
 steps:
   - task: Docker@2
-    displayName: 'Build Docker Image'
+    displayName: 'Build Image'
     inputs:
       command: build
       Dockerfile: Dockerfile
-      tags: |
-        $(Build.BuildId)
+      tags: $(Build.BuildId)
 
   - task: QualysContainerScan@1
-    displayName: 'Qualys Security Scan'
+    displayName: 'Qualys Container Scan'
     inputs:
       qualysConnection: 'QualysConnection'
       imageId: 'myapp:$(Build.BuildId)'
-      usePolicyEvaluation: true
+      maxCritical: 0
+      maxHigh: 0
 ```
 
-### Full Security Pipeline
+### Full Security Pipeline (Container + Code Scan)
 
 ```yaml
 trigger:
@@ -193,44 +180,59 @@ trigger:
 pool:
   vmImage: 'ubuntu-latest'
 
-stages:
-  - stage: Build
-    jobs:
-      - job: BuildAndScan
-        steps:
-          - task: Docker@2
-            displayName: 'Build Image'
-            inputs:
-              command: build
-              tags: $(Build.BuildId)
+steps:
+  - task: Docker@2
+    displayName: 'Build Image'
+    inputs:
+      command: build
+      tags: $(Build.BuildId)
 
-          - task: QualysContainerScan@1
-            displayName: 'Container Security Scan'
-            inputs:
-              qualysConnection: 'QualysConnection'
-              imageId: 'myapp:$(Build.BuildId)'
-              usePolicyEvaluation: true
-              policyTags: 'production'
-              scanSecrets: true
-              publishResults: true
+  - task: QualysContainerScan@1
+    displayName: 'Container Security Scan'
+    inputs:
+      qualysConnection: 'QualysConnection'
+      imageId: 'myapp:$(Build.BuildId)'
+      maxCritical: 0
+      maxHigh: 0
+      scanSecrets: true
+      publishResults: true
 
-          - task: QualysCodeScan@1
-            displayName: 'Code Scan'
-            inputs:
-              qualysConnection: 'QualysConnection'
-              scanPath: '$(Build.SourcesDirectory)'
-              usePolicyEvaluation: true
-              scanSecrets: true
-              generateSbom: true
-              sbomFormat: 'spdx,cyclonedx'
+  - task: QualysCodeScan@1
+    displayName: 'Code Dependency Scan'
+    inputs:
+      qualysConnection: 'QualysConnection'
+      scanPath: '$(Build.SourcesDirectory)'
+      maxCritical: 0
+      maxHigh: 0
+      scanSecrets: true
+      generateSbom: true
+      sbomFormat: 'spdx,cyclonedx'
 
-          # Only push if scans passed
-          - task: Docker@2
-            displayName: 'Push to Registry'
-            condition: succeeded()
-            inputs:
-              command: push
+  - task: Docker@2
+    displayName: 'Push to Registry'
+    condition: succeeded()
+    inputs:
+      command: push
 ```
+
+### Using Qualys Cloud Policies
+
+Instead of local thresholds, use centralized policies configured in the Qualys portal:
+
+```yaml
+- task: QualysContainerScan@1
+  inputs:
+    qualysConnection: 'QualysConnection'
+    imageId: 'myapp:$(Build.BuildId)'
+    usePolicyEvaluation: true
+    policyTags: 'production,ci-cd'
+```
+
+To set up policies:
+1. In Qualys, go to **Container Security > Policies**
+2. Create a policy with severity thresholds, CVE blocks, or age-based rules
+3. Tag the policy (e.g., `production`)
+4. Reference the tag in `policyTags`
 
 ### Using Output Variables
 
@@ -242,75 +244,51 @@ stages:
     imageId: 'myapp:latest'
 
 - script: |
-    echo "Vulnerabilities found: $(qualysScan.vulnerabilityCount)"
+    echo "Total vulnerabilities: $(qualysScan.vulnerabilityCount)"
     echo "Critical: $(qualysScan.criticalCount)"
-    echo "Policy Result: $(qualysScan.policyResult)"
-  displayName: 'Show Scan Results'
+    echo "High: $(qualysScan.highCount)"
+    echo "Policy result: $(qualysScan.policyResult)"
+    echo "Scan passed: $(qualysScan.scanPassed)"
+  displayName: 'Show Results'
 ```
 
-### Creating Work Items for Vulnerabilities
+### Auto-Creating Work Items
 
 Automatically create Bug work items in Azure Boards for discovered vulnerabilities:
 
 ```yaml
-trigger:
-  - main
-
-pool:
-  vmImage: 'ubuntu-latest'
-
-steps:
-  - task: QualysContainerScan@1
-    displayName: 'Scan and Create Work Items'
-    inputs:
-      qualysConnection: 'QualysConnection'
-      imageId: 'myapp:$(Build.BuildId)'
-      usePolicyEvaluation: true
-
-      # Enable work item creation
-      createWorkItems: true
-      workItemSeverities: '4'          # Create for High and Critical
-      workItemAreaPath: 'MyProject\Security'
-    env:
-      SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+- task: QualysContainerScan@1
+  displayName: 'Scan and Create Work Items'
+  inputs:
+    qualysConnection: 'QualysConnection'
+    imageId: 'myapp:$(Build.BuildId)'
+    maxCritical: 0
+    maxHigh: 0
+    createWorkItems: true
+    workItemSeverities: '4'
+    workItemAreaPath: 'MyProject\Security'
+  env:
+    SYSTEM_ACCESSTOKEN: $(System.AccessToken)
 ```
 
-**Important**: To create work items, you must:
-1. Enable **"Allow scripts to access OAuth token"** in your pipeline settings, OR
-2. Pass the token explicitly via `env: SYSTEM_ACCESSTOKEN: $(System.AccessToken)`
+**Requirements for work item creation:**
+- Enable **"Allow scripts to access OAuth token"** in pipeline settings, OR pass the token via `env: SYSTEM_ACCESSTOKEN: $(System.AccessToken)`
+- The build service account needs permission to create work items
 
-Work items are created as **Bug** type with:
-- Title: `[Severity] CVE-ID: Description`
-- Tags: `qualys-vuln:{id}`, `security`, severity level
-- Priority mapped from severity (Critical=1, High=2, etc.)
-- Duplicate detection prevents creating multiple bugs for the same vulnerability
+Work items include severity in the title, are tagged with `qualys-vuln:{id}` for duplicate detection, and link to CVE details.
 
-## Qualys Policy Setup
-
-Configure policies in the Qualys portal for automated pass/fail decisions:
-
-1. Log into Qualys and navigate to **Container Security > Policies**
-2. Create a policy with:
-   - **Severity thresholds**: Fail on Critical or High vulnerabilities
-   - **Specific CVE blocks**: Block known dangerous CVEs like Log4Shell
-   - **Age-based rules**: Fail if vulnerabilities remain unfixed beyond a threshold
-3. Tag the policy (e.g., `production`, `ci-cd`)
-4. Reference the tag in your pipeline: `policyTags: 'production'`
-
-## Supported Platforms
-
-| Platform | Architecture |
-|----------|--------------|
-| Linux | amd64 |
-
-> **Note:** QScanner CLI currently only supports Linux amd64. Use a Linux-based build agent (e.g., `ubuntu-latest` in Azure Pipelines).
+---
 
 ## Qualys Pods
 
 | Pod | Region |
 |-----|--------|
-| US1, US2, US3, US4 | United States |
-| EU1, EU2 | Europe |
+| US1 | United States (Platform 1) |
+| US2 | United States (Platform 2) |
+| US3 | United States (Platform 3) |
+| US4 | United States (Platform 4) |
+| EU1 | Europe (Platform 1) |
+| EU2 | Europe (Platform 2) |
 | CA1 | Canada |
 | IN1 | India |
 | AU1 | Australia |
@@ -318,77 +296,25 @@ Configure policies in the Qualys portal for automated pass/fail decisions:
 | AE1 | UAE |
 | KSA1 | Saudi Arabia |
 
-## Development
-
-### Prerequisites
-
-- Node.js 20+
-- npm 9+
-
-### Build
-
-```bash
-# Install dependencies
-npm install
-npm run install:tasks
-
-# Compile TypeScript
-npm run compile
-
-# Run tests
-npm test
-
-# Package extension
-npm run package
-```
-
-### Project Structure
-
-```
-qualys-ado/
-├── src/
-│   ├── common/
-│   │   ├── api/types.ts           # Type definitions
-│   │   ├── qscanner/              # QScanner CLI runner
-│   │   ├── thresholds/            # Local threshold evaluation
-│   │   └── utils/                 # Logging, retry utilities
-│   └── tasks/
-│       ├── QualysContainerScan/   # Container scan task
-│       └── QualysCodeScan/        # Code scan task (SCA)
-├── docs/                          # Documentation
-├── vss-extension.json             # Extension manifest
-├── overview.md                    # Marketplace description
-└── package.json
-```
-
 ## Troubleshooting
 
-### QScanner binary not found
+| Problem | Solution |
+|---------|----------|
+| **QScanner binary not found** | Ensure the build agent has internet access to `raw.githubusercontent.com`. The task downloads QScanner automatically. |
+| **Authentication failed** | Verify your access token is valid. Regenerate in Container Security > Configuration > Access Token. |
+| **Policy returned AUDIT** | No policies matched. Create policies in Qualys and tag them, then set `policyTags` in your task. |
+| **Scan is slow** | Use `storageDriver: 'docker-overlay2'` if Docker is available. Increase `scanTimeout` if needed. |
+| **Work items not created** | Check OAuth token access, build service permissions, and severity filter. See [work items example](#auto-creating-work-items). |
+| **Unsupported platform** | QScanner currently supports **Linux amd64 only**. Use `ubuntu-latest` or a compatible self-hosted agent. |
 
-The task downloads QScanner automatically. Ensure the build agent has internet access to `raw.githubusercontent.com`.
+## Development
 
-### Authentication failed
-
-Verify your access token is valid and not expired. Tokens can be regenerated in Container Security > Configuration > Access Token.
-
-### Policy evaluation returned AUDIT
-
-AUDIT means no policies matched. Create policies in Qualys and tag them, then reference the tags in `policyTags`.
-
-### Scan takes too long
-
-- Use `storageDriver: 'docker-overlay2'` if Docker is available (faster than pulling image)
-- Increase `scanTimeout` if needed
-- Consider `offlineScan: true` for SCA to skip upload
-
-### Work items not created
-
-If work items are not being created:
-
-1. **Check OAuth token access**: Enable "Allow scripts to access OAuth token" in pipeline settings, or pass `env: SYSTEM_ACCESSTOKEN: $(System.AccessToken)`
-2. **Verify permissions**: The build service account needs permission to create work items in the project
-3. **Check severity filter**: By default only High and Critical (4+) create work items. Lower `workItemSeverities` to include more.
-4. **Duplicates are skipped**: If the same CVE/QID was found before, a new work item won't be created (check tags for `qualys-vuln:{id}`)
+```bash
+npm install && npm run install:tasks   # Install dependencies
+npm run compile                        # Build TypeScript
+npm test                               # Run tests
+npm run package                        # Package .vsix
+```
 
 ## License
 
