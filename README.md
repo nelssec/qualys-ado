@@ -1,5 +1,7 @@
 # Qualys Security Scanner for Azure DevOps
 
+> ⚠️ **Unofficial project.** This is a personal project and is not affiliated with, endorsed by, or supported by Qualys, Inc.
+
 Integrate Qualys vulnerability scanning directly into your Azure Pipelines. Scan container images and code dependencies for vulnerabilities, enforce security policies, and gate builds — all powered by the Qualys QScanner CLI.
 
 ## What This Extension Does
