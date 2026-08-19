@@ -15,8 +15,24 @@ import {
   VulnerabilitySummary,
 } from '../api/types';
 
-const QSCANNER_BINARY_URL = 'https://raw.githubusercontent.com/nelssec/qualys-lambda/main/scanner-lambda/qscanner.gz';
-const QSCANNER_SHA256 = '2d1ffb89cc97bdb19bc3f255164678319bd31a220c7028c602b7f81ba9198dba';
+interface QScannerBinary {
+  url: string;
+  sha256: string;
+  archive: 'gzip' | 'tar.gz';
+}
+
+const QSCANNER_BINARIES: Record<string, QScannerBinary> = {
+  'linux-amd64': {
+    url: 'https://cask.qg1.apps.qualys.com/cs/p/OlNbkL-3IMLlFyQ50MA-U5_chyRhK0zW60A7zsgUANTM3XHv2GWZYKOEWmxG8AEF/n/qualysincgov/b/us01-cask-artifacts/o/cs/qscanner/5.1.0-5/qscanner-5.1.0-5.linux-amd64.tar.gz',
+    sha256: 'ce94289bf935ea6d005363c9ae533ec841018d1d82acbd611d1ce3a8a434e11c',
+    archive: 'tar.gz',
+  },
+  'linux-arm64': {
+    url: 'https://cask.qg1.apps.qualys.com/cs/p/2tywrrvUoKQLkAqI82eCElj4oExviRYLNCxEcbPV0yJgJYEQ8KUtCsBQSnqPIles/n/qualysincgov/b/us01-cask-artifacts/o/cs/qscanner/5.1.0-5/qscanner-5.1.0-5.linux-arm64.tar.gz',
+    sha256: 'e2f4451087661f8ba60477022b5c5817bad672872a69db7db8966ec28ffd97de',
+    archive: 'tar.gz',
+  },
+};
 
 export class QScannerRunner {
   private config: QScannerConfig;
@@ -38,11 +54,15 @@ export class QScannerRunner {
 
     console.log(`Setting up QScanner for ${platform}-${arch}...`);
 
-    if (platform !== 'linux' || arch !== 'amd64') {
-      throw new Error(`QScanner binary only supports linux-amd64. Current: ${platform}-${arch}`);
+    const binaryKey = `${platform}-${arch}`;
+    const binary = QSCANNER_BINARIES[binaryKey];
+    if (!binary) {
+      throw new Error(
+        `QScanner binary is not available for ${binaryKey}. Supported: ${Object.keys(QSCANNER_BINARIES).join(', ')}`
+      );
     }
 
-    const binaryName = 'qscanner';
+    const binaryName = `qscanner-${binaryKey}`;
     this.binaryPath = path.join(this.workDir, binaryName);
 
     if (fs.existsSync(this.binaryPath)) {
@@ -51,23 +71,27 @@ export class QScannerRunner {
       return;
     }
 
-    const gzPath = path.join(this.workDir, 'qscanner.gz');
+    const archivePath = path.join(this.workDir, binary.archive === 'gzip' ? 'qscanner.gz' : 'qscanner.tar.gz');
 
     console.log('Downloading QScanner binary...');
-    await this.downloadFile(QSCANNER_BINARY_URL, gzPath);
+    await this.downloadFile(binary.url, archivePath);
 
     console.log('Verifying SHA256 checksum...');
-    const actualHash = await this.calculateSha256(gzPath);
-    if (actualHash !== QSCANNER_SHA256) {
-      fs.unlinkSync(gzPath);
-      throw new Error(`SHA256 checksum mismatch. Expected: ${QSCANNER_SHA256}, Got: ${actualHash}`);
+    const actualHash = await this.calculateSha256(archivePath);
+    if (actualHash !== binary.sha256) {
+      fs.unlinkSync(archivePath);
+      throw new Error(`SHA256 checksum mismatch. Expected: ${binary.sha256}, Got: ${actualHash}`);
     }
     console.log('Checksum verified.');
 
     console.log('Extracting QScanner binary...');
-    await this.gunzipFile(gzPath, this.binaryPath);
+    if (binary.archive === 'gzip') {
+      await this.gunzipFile(archivePath, this.binaryPath);
+    } else {
+      await this.extractTarGz(archivePath, this.binaryPath);
+    }
 
-    fs.unlinkSync(gzPath);
+    fs.unlinkSync(archivePath);
     fs.chmodSync(this.binaryPath, '755');
 
     console.log(`QScanner binary ready at ${this.binaryPath}`);
@@ -90,6 +114,40 @@ export class QScannerRunner {
       dest.on('error', reject);
       src.on('error', reject);
       gunzip.on('error', reject);
+    });
+  }
+
+  private extractTarGz(srcPath: string, destPath: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const extractDir = path.join(this.workDir, 'qscanner-extract');
+      if (!fs.existsSync(extractDir)) {
+        fs.mkdirSync(extractDir, { recursive: true });
+      }
+
+      const proc = spawn('tar', ['-xzf', srcPath, '-C', extractDir, 'qscanner']);
+      let stderr = '';
+
+      proc.stderr?.on('data', (data) => {
+        stderr += data.toString();
+      });
+
+      proc.on('close', (code) => {
+        if (code !== 0) {
+          reject(new Error(`Failed to extract QScanner archive (tar exit code ${code}): ${stderr}`));
+          return;
+        }
+        try {
+          fs.renameSync(path.join(extractDir, 'qscanner'), destPath);
+          fs.rmSync(extractDir, { recursive: true, force: true });
+          resolve();
+        } catch (err) {
+          reject(err as Error);
+        }
+      });
+
+      proc.on('error', (err) => {
+        reject(new Error(`Failed to run tar: ${err.message}`));
+      });
     });
   }
 
